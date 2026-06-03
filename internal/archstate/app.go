@@ -99,6 +99,8 @@ func (r *Runner) Run(args []string) error {
 		return r.runHome(args[1:])
 	case "snapshot":
 		return r.runSnapshot(args[1:])
+	case "service":
+		return r.runService(args[1:])
 	case "doctor":
 		if len(args) == 2 && isHelpArg(args[1]) {
 			return r.printCommandHelp("doctor")
@@ -166,6 +168,7 @@ Commands:
   snapshot   Save, list, restore, or remove repo-state snapshots.
   bootstrap  Install missing packages and recreate managed symlinks.
   doctor     Diagnose repo health and print concrete fix commands.
+  service    Manage the optional systemd user sync timer.
 
 Command help:
   archstate help <command>
@@ -313,8 +316,33 @@ Output convention:
   ERROR  Problems that need a fix before Archstate can be trusted.
 
 Doctor prints exact next commands when a fix is known.`)
+	case "service":
+		fmt.Fprintln(r.Stdout, `Usage:
+  archstate service install
+  archstate service enable
+  archstate service status
+  archstate service disable
+  archstate service uninstall
+
+Manage the optional systemd user timer that runs archstate sync.
+
+Commands:
+  install    Install/update ~/.local/bin/archstate and write user unit files.
+  enable     Enable and start the timer.
+  status     Show unit file, enabled, and active state.
+  disable    Disable and stop the timer.
+  uninstall  Disable the timer and remove Archstate user unit files.
+
+Timer:
+  OnBootSec=5min
+  OnUnitActiveSec=1h
+  RandomizedDelaySec=10min
+
+Notes:
+  The service is opt-in; init does not enable it.
+  sync no-ops when package state is already current.`)
 	default:
-		return fmt.Errorf("unknown help topic %q; choose init, install, sync, status, config, home, snapshot, bootstrap, or doctor", topic)
+		return fmt.Errorf("unknown help topic %q; choose init, install, sync, status, config, home, snapshot, bootstrap, doctor, or service", topic)
 	}
 	return nil
 }
