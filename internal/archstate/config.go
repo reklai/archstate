@@ -103,6 +103,14 @@ func readStateFileStrict(path string, validate entryValidator) (map[string]strin
 	return entries, nil
 }
 
+func readStateFileStrictOptional(path string, validate entryValidator) (map[string]string, error) {
+	entries, err := readStateFileStrict(path, validate)
+	if err != nil && os.IsNotExist(err) {
+		return map[string]string{}, nil
+	}
+	return entries, err
+}
+
 func splitEntryLine(line string) (string, string, bool) {
 	key, value, ok := strings.Cut(line, "=")
 	if !ok {
@@ -135,7 +143,7 @@ func validatePackageEntry(key, value string) error {
 	return nil
 }
 
-func validateDotfileEntry(key, value string) error {
+func validateManagedEntry(key, value string) error {
 	if err := validateDirectChildName(key); err != nil {
 		return fmt.Errorf("invalid config name %q: %w", key, err)
 	}

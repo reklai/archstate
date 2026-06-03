@@ -71,18 +71,42 @@ func (r repoPaths) aurPath() string {
 	return filepath.Join(r.path, "aur.conf")
 }
 
-func (r repoPaths) dotfilesPath() string {
-	return filepath.Join(r.path, "dotfiles.conf")
+func (r repoPaths) configPath() string {
+	return filepath.Join(r.path, "config.conf")
 }
 
-func (r repoPaths) dotfilesDir() string {
-	return filepath.Join(r.path, "dotfiles")
+func (r repoPaths) homePath() string {
+	return filepath.Join(r.path, "home.conf")
 }
 
-func (r repoPaths) repoDotfile(name string) string {
-	return filepath.Join(r.dotfilesDir(), name)
+func (r repoPaths) configDir() string {
+	return filepath.Join(r.path, "config")
+}
+
+func (r repoPaths) homeDir() string {
+	return filepath.Join(r.path, "home")
+}
+
+func (r repoPaths) snapshotsDir() string {
+	return filepath.Join(r.path, ".snapshots")
+}
+
+func (r repoPaths) snapshotPath(id string) string {
+	return filepath.Join(r.snapshotsDir(), id)
+}
+
+func (r repoPaths) repoConfig(name string) string {
+	return filepath.Join(r.configDir(), name)
+}
+
+func (r repoPaths) repoHome(name string) string {
+	return filepath.Join(r.homeDir(), name)
 }
 
 func (r repoPaths) localConfig(name string) string {
 	return filepath.Join(r.home, ".config", name)
+}
+
+func (r repoPaths) localHome(name string) string {
+	return filepath.Join(r.home, name)
 }

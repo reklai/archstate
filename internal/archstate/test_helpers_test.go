@@ -25,7 +25,8 @@ func newTestEnv(t *testing.T) *testEnv {
 	home := filepath.Join(root, "home")
 	cwd := filepath.Join(root, "work")
 	bin := filepath.Join(root, "bin")
-	for _, dir := range []string{home, cwd, bin} {
+	fallbackBin := filepath.Join(root, "usr-bin")
+	for _, dir := range []string{home, cwd, bin, fallbackBin} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -35,6 +36,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	env := []string{
 		"HOME=" + home,
 		"PATH=" + bin,
+		"ARCHSTATE_AUR_HELPER_FALLBACK_DIR=" + fallbackBin,
 	}
 	return &testEnv{
 		r: &Runner{
@@ -63,7 +65,7 @@ func (e *testEnv) run(args ...string) error {
 
 func (e *testEnv) initRepo(t *testing.T) {
 	t.Helper()
-	if err := e.run("init"); err != nil {
+	if err := e.run("init", "--no-install"); err != nil {
 		t.Fatal(err)
 	}
 }

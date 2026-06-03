@@ -10,17 +10,22 @@ type BootstrapOptions struct {
 	Preview   bool
 	Adopt     bool
 	Overwrite bool
+	AURHelper string
 }
 
 type BootstrapPlan struct {
-	Repo             repoPaths
-	NativeMissing    []string
-	AURMissing       []string
-	AURHelper        string
-	AURHelperError   error
-	DotfileActions   []DotfileAction
-	DotfileConflicts []DotfileConflict
-	DotfileErrors    []error
+	Repo               repoPaths
+	NativeMissing      []string
+	AURMissing         []string
+	AURHelper          string
+	AURHelperPath      string
+	AURHelperPackage   string
+	AURHelperBootstrap bool
+	AURHelperError     error
+	ConfigActions      []ManagedAction
+	HomeActions        []ManagedAction
+	ManagedConflicts   []ManagedConflict
+	ManagedErrors      []error
 }
 
 func (r *Runner) buildBootstrapPlan(repo repoPaths, opts BootstrapOptions) (BootstrapPlan, error) {
@@ -32,7 +37,11 @@ func (r *Runner) buildBootstrapPlan(repo repoPaths, opts BootstrapOptions) (Boot
 	if err != nil {
 		return BootstrapPlan{}, err
 	}
-	dotState, err := readStateFileStrict(repo.dotfilesPath(), validateDotfileEntry)
+	configState, err := readStateFileStrict(repo.configPath(), validateManagedEntry)
+	if err != nil {
+		return BootstrapPlan{}, err
+	}
+	homeState, err := readStateFileStrictOptional(repo.homePath(), validateManagedEntry)
 	if err != nil {
 		return BootstrapPlan{}, err
 	}
@@ -42,25 +51,29 @@ func (r *Runner) buildBootstrapPlan(repo repoPaths, opts BootstrapOptions) (Boot
 	}
 
 	plan := BootstrapPlan{
-		Repo:           repo,
-		NativeMissing:  missingPackages(nativeState, installed),
-		AURMissing:     missingPackages(aurState, installed),
-		DotfileActions: planDotfiles(repo, dotState, opts),
+		Repo:          repo,
+		NativeMissing: missingPackages(nativeState, installed),
+		AURMissing:    missingPackages(aurState, installed),
+		ConfigActions: planConfigs(repo, configState, opts),
+		HomeActions:   planHomeFiles(repo, homeState, opts),
 	}
 	if len(plan.AURMissing) > 0 {
-		helper, err := r.findAURHelper()
+		helper, helperPath, needsBootstrap, err := r.resolveAURHelper(opts.AURHelper)
 		if err != nil {
 			plan.AURHelperError = err
 		} else {
 			plan.AURHelper = helper
+			plan.AURHelperPath = helperPath
+			plan.AURHelperPackage = aurHelperPackage(helper)
+			plan.AURHelperBootstrap = needsBootstrap
 		}
 	}
-	for _, action := range plan.DotfileActions {
+	for _, action := range plan.allManagedActions() {
 		switch action.Kind {
-		case DotfileConflictAction:
-			plan.DotfileConflicts = append(plan.DotfileConflicts, DotfileConflict{Action: action})
-		case DotfileErrorAction:
-			plan.DotfileErrors = append(plan.DotfileErrors, action.Err)
+		case ManagedConflictAction:
+			plan.ManagedConflicts = append(plan.ManagedConflicts, ManagedConflict{Action: action})
+		case ManagedErrorAction:
+			plan.ManagedErrors = append(plan.ManagedErrors, action.Err)
 		}
 	}
 	return plan, nil
@@ -75,28 +88,36 @@ func (r *Runner) printBootstrapPlan(plan BootstrapPlan) {
 			fmt.Fprintf(r.Stdout, "  AUR helper error: %v\n", plan.AURHelperError)
 		} else {
 			fmt.Fprintf(r.Stdout, "  AUR helper: %s\n", plan.AURHelper)
+			if plan.AURHelperBootstrap {
+				fmt.Fprintf(r.Stdout, "  AUR helper bootstrap: %s\n", plan.AURHelperPackage)
+			}
 		}
 	}
 
-	fmt.Fprintln(r.Stdout, "Dotfile plan:")
-	if len(plan.DotfileActions) == 0 {
-		fmt.Fprintln(r.Stdout, "  no dotfiles declared")
+	printManagedPlan(r.Stdout, "Config plan:", "no config entries declared", plan.ConfigActions)
+	printManagedPlan(r.Stdout, "Home file plan:", "no home files declared", plan.HomeActions)
+}
+
+func printManagedPlan(w interface{ Write([]byte) (int, error) }, title, empty string, actions []ManagedAction) {
+	fmt.Fprintln(w, title)
+	if len(actions) == 0 {
+		fmt.Fprintf(w, "  %s\n", empty)
 		return
 	}
-	for _, action := range plan.DotfileActions {
+	for _, action := range actions {
 		switch action.Kind {
-		case DotfileNoopAction:
-			fmt.Fprintf(r.Stdout, "  ok %s\n", action.LocalPath)
-		case DotfileSymlinkAction:
-			fmt.Fprintf(r.Stdout, "  link %s -> %s\n", action.LocalPath, action.RepoPath)
-		case DotfileAdoptAction:
-			fmt.Fprintf(r.Stdout, "  adopt %s -> %s\n", action.LocalPath, action.RepoPath)
-		case DotfileOverwriteAction:
-			fmt.Fprintf(r.Stdout, "  overwrite %s -> %s\n", action.LocalPath, action.RepoPath)
-		case DotfileConflictAction:
-			fmt.Fprintf(r.Stdout, "  prompt %s: %s\n", action.LocalPath, action.Message)
-		case DotfileErrorAction:
-			fmt.Fprintf(r.Stdout, "  error %s: %v\n", action.LocalPath, action.Err)
+		case ManagedNoopAction:
+			fmt.Fprintf(w, "  ok %s\n", action.LocalPath)
+		case ManagedSymlinkAction:
+			fmt.Fprintf(w, "  link %s -> %s\n", action.LocalPath, action.RepoPath)
+		case ManagedAdoptAction:
+			fmt.Fprintf(w, "  adopt %s -> %s\n", action.LocalPath, action.RepoPath)
+		case ManagedOverwriteAction:
+			fmt.Fprintf(w, "  overwrite %s -> %s\n", action.RepoPath, action.LocalPath)
+		case ManagedConflictAction:
+			fmt.Fprintf(w, "  conflict %s: %s\n", action.LocalPath, action.Message)
+		case ManagedErrorAction:
+			fmt.Fprintf(w, "  error %s: %v\n", action.LocalPath, action.Err)
 		}
 	}
 }
@@ -115,20 +136,19 @@ func (r *Runner) applyBootstrapPlan(plan BootstrapPlan, opts BootstrapOptions) e
 			return plan.AURHelperError
 		}
 	}
-	if len(plan.DotfileErrors) > 0 {
-		return plan.DotfileErrors[0]
+	if len(plan.ManagedErrors) > 0 {
+		return plan.ManagedErrors[0]
 	}
 
-	resolvedActions := make([]DotfileAction, 0, len(plan.DotfileActions))
-	for _, action := range plan.DotfileActions {
-		if action.Kind == DotfileConflictAction {
-			resolved, err := r.resolveDotfileConflict(action, opts)
-			if err != nil {
-				return err
-			}
-			action = resolved
+	for _, action := range plan.allManagedActions() {
+		if action.Kind == ManagedConflictAction {
+			return fmt.Errorf("unmanaged config conflict at %s: %s", action.LocalPath, action.Message)
 		}
-		resolvedActions = append(resolvedActions, action)
+	}
+	if plan.hasRiskyManagedActions() {
+		if _, err := r.createAutoSnapshot(plan.Repo); err != nil {
+			return err
+		}
 	}
 
 	if len(plan.NativeMissing) > 0 {
@@ -138,17 +158,41 @@ func (r *Runner) applyBootstrapPlan(plan BootstrapPlan, opts BootstrapOptions) e
 		}
 	}
 	if len(plan.AURMissing) > 0 {
+		if plan.AURHelperBootstrap {
+			helperPath, err := r.bootstrapAURHelper(plan.AURHelper)
+			if err != nil {
+				return err
+			}
+			plan.AURHelperPath = helperPath
+		}
 		args := append([]string{"-S", "--needed"}, plan.AURMissing...)
-		if err := r.streamCommand(plan.AURHelper, args...); err != nil {
+		if err := r.streamCommand(plan.AURHelperPath, args...); err != nil {
 			return err
 		}
 	}
-	for _, action := range resolvedActions {
-		if err := applyDotfileAction(action); err != nil {
+	for _, action := range plan.allManagedActions() {
+		if err := applyManagedAction(action); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (p BootstrapPlan) hasRiskyManagedActions() bool {
+	for _, action := range p.allManagedActions() {
+		switch action.Kind {
+		case ManagedAdoptAction, ManagedOverwriteAction:
+			return true
+		}
+	}
+	return false
+}
+
+func (p BootstrapPlan) allManagedActions() []ManagedAction {
+	actions := make([]ManagedAction, 0, len(p.ConfigActions)+len(p.HomeActions))
+	actions = append(actions, p.ConfigActions...)
+	actions = append(actions, p.HomeActions...)
+	return actions
 }
 
 func sortedEntryKeys(entries map[string]string) []string {

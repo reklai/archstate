@@ -121,6 +121,30 @@ func packageNames(entries map[string]string) []string {
 	return names
 }
 
+func packageStateIsCurrent(path string, installed []string, existing map[string]string) bool {
+	if !packageNamesMatchInstalled(existing, installed) {
+		return false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(data, formatState(existing))
+}
+
+func packageNamesMatchInstalled(entries map[string]string, installed []string) bool {
+	names := packageNames(entries)
+	if len(names) != len(installed) {
+		return false
+	}
+	for i, name := range names {
+		if name != installed[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func missingPackages(wanted map[string]string, installed []string) []string {
 	installedSet := make(map[string]bool, len(installed))
 	for _, name := range installed {
@@ -136,14 +160,95 @@ func missingPackages(wanted map[string]string, installed []string) []string {
 	return missing
 }
 
-func (r *Runner) findAURHelper() (string, error) {
-	if err := r.requireCommand("paru"); err == nil {
-		return "paru", nil
+func (r *Runner) findAURHelper() (string, string, error) {
+	if path, err := r.resolveInstalledAURHelper("paru"); err == nil {
+		return "paru", path, nil
 	}
-	if err := r.requireCommand("yay"); err == nil {
-		return "yay", nil
+	if path, err := r.resolveInstalledAURHelper("yay"); err == nil {
+		return "yay", path, nil
 	}
-	return "", errors.New("AUR packages are declared but neither paru nor yay is installed")
+	return "", "", errors.New("AUR packages are declared but neither paru nor yay is installed")
+}
+
+func (r *Runner) resolveAURHelper(preferred string) (helper string, helperPath string, needsBootstrap bool, err error) {
+	if preferred != "" {
+		if !isSupportedAURHelper(preferred) {
+			return "", "", false, fmt.Errorf("unsupported AUR helper %q; choose paru or yay", preferred)
+		}
+		if path, err := r.resolveInstalledAURHelper(preferred); err == nil {
+			return preferred, path, false, nil
+		}
+		return preferred, preferred, true, nil
+	}
+	if helper, path, err := r.findAURHelper(); err == nil {
+		return helper, path, false, nil
+	}
+	return "", "", false, errors.New(`AUR packages are tracked, but neither paru nor yay is installed.
+Choose a helper explicitly:
+  archstate bootstrap --aur-helper paru
+  archstate bootstrap --aur-helper yay`)
+}
+
+func (r *Runner) resolveInstalledAURHelper(helper string) (string, error) {
+	if path, err := r.lookPath(helper); err == nil {
+		return path, nil
+	}
+	usrBin := filepath.Join(r.aurHelperFallbackDir(), helper)
+	if isExecutable(usrBin) {
+		return usrBin, nil
+	}
+	return "", fmt.Errorf("%s not found in PATH or /usr/bin", helper)
+}
+
+func (r *Runner) aurHelperFallbackDir() string {
+	if dir := envValue(r.Env, "ARCHSTATE_AUR_HELPER_FALLBACK_DIR"); dir != "" {
+		return dir
+	}
+	return "/usr/bin"
+}
+
+func isSupportedAURHelper(helper string) bool {
+	return helper == "paru" || helper == "yay"
+}
+
+func aurHelperPackage(helper string) string {
+	switch helper {
+	case "paru":
+		return "paru-bin"
+	case "yay":
+		return "yay-bin"
+	default:
+		return ""
+	}
+}
+
+func (r *Runner) bootstrapAURHelper(helper string) (string, error) {
+	pkg := aurHelperPackage(helper)
+	if pkg == "" {
+		return "", fmt.Errorf("unsupported AUR helper %q; choose paru or yay", helper)
+	}
+	fmt.Fprintf(r.Stdout, "bootstrapping AUR helper %s from %s\n", helper, pkg)
+	if err := r.streamCommand("sudo", "pacman", "-S", "--needed", "git", "base-devel"); err != nil {
+		return "", err
+	}
+	tmp, err := os.MkdirTemp("", "archstate-aur-helper-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(tmp)
+
+	cloneDir := filepath.Join(tmp, pkg)
+	if err := r.streamCommand("git", "clone", "https://aur.archlinux.org/"+pkg+".git", cloneDir); err != nil {
+		return "", err
+	}
+	if err := r.streamCommandInDir(cloneDir, "makepkg", "-si"); err != nil {
+		return "", err
+	}
+	helperPath, err := r.resolveInstalledAURHelper(helper)
+	if err != nil {
+		return "", fmt.Errorf("%s was built, but %s was not found in PATH or /usr/bin; check that /usr/bin is in PATH, then rerun archstate bootstrap: %w", pkg, helper, err)
+	}
+	return helperPath, nil
 }
 
 func (r *Runner) requireCommand(name string) error {
@@ -173,13 +278,17 @@ func (r *Runner) commandOutput(name string, args ...string) (string, error) {
 }
 
 func (r *Runner) streamCommand(name string, args ...string) error {
+	return r.streamCommandInDir(r.Cwd, name, args...)
+}
+
+func (r *Runner) streamCommandInDir(dir, name string, args ...string) error {
 	path, err := r.lookPath(name)
 	if err != nil {
 		return err
 	}
 	cmd := exec.Command(path, args...)
 	cmd.Env = r.Env
-	cmd.Dir = r.Cwd
+	cmd.Dir = dir
 	cmd.Stdin = r.Stdin
 	cmd.Stdout = r.Stdout
 	cmd.Stderr = r.Stderr
