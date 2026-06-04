@@ -34,7 +34,7 @@ go build -o archstate ./cmd/archstate
 ~/.local/bin/archstate
 ```
 
-If `~/.local/bin` is not in `PATH`, Archstate prints the shell line to add. It does not edit shell files automatically.
+If `~/.local/bin` is not in `PATH`, Archstate prints the exact rc file and line to add, detecting your shell (bash, zsh, fish, or a POSIX fallback). It does not edit shell files automatically unless you opt in with `archstate install --add-to-path`, which appends the line to the right rc file (idempotently).
 
 `init` is safe to rerun. Existing Archstate state is preserved; missing default files/directories are created; the binary is installed or updated. Use `archstate init --no-install` to skip binary installation.
 
@@ -61,6 +61,13 @@ archstate home add .zshrc
 archstate home add .profile
 ```
 
+List what is currently tracked:
+
+```bash
+archstate config list
+archstate home list
+```
+
 Save a baseline:
 
 ```bash
@@ -73,6 +80,14 @@ Inspect what Archstate sees:
 archstate status
 archstate doctor
 ```
+
+Remove explicit packages through the interactive TUI:
+
+```bash
+archstate packages
+```
+
+`packages` syncs first, opens a fuzzy-search removal UI with Native and AUR sections, shows a scrollable review of the marked packages (where you can still unmark before committing), runs one confirmed `sudo pacman -Rns ...` command, then syncs package state again after successful removal.
 
 `sync` treats the current machine's explicit packages as source of truth:
 
@@ -222,7 +237,7 @@ Automatic snapshots are created silently before risky Archstate mutations and pr
 
 Snapshots do not capture installed packages, pacman cache, system files, or the full home directory.
 
-Repo-state mutations take a per-repo lock so two Archstate commands do not rewrite state at the same time. If the Archstate repo is a Git worktree, destructive repo rewrites require a clean worktree first; commit or stash local changes before running `config add`, `config rm`, `home add`, `home rm`, `bootstrap --adopt`, `bootstrap --overwrite`, or `snapshot restore`. `sync` is allowed to rewrite package state with a dirty worktree because it treats the current machine as source of truth and creates an automatic snapshot first.
+Repo-state mutations take a per-repo lock so two Archstate commands do not rewrite state at the same time. If the Archstate repo is a Git worktree, destructive repo rewrites require a clean worktree first; commit or stash local changes before running `config add`, `config rm`, `home add`, `home rm`, `bootstrap --adopt`, `bootstrap --overwrite`, or `snapshot restore`. `sync` is allowed to rewrite package state with a dirty worktree because it treats the current machine as source of truth and creates an automatic snapshot first. The optional auto-sync timer runs `sync --commit` so its background rewrites are committed instead of left as a dirty worktree that would block the commands above.
 
 ## Optional Auto-Sync
 
@@ -244,8 +259,10 @@ archstate service status
 The timer runs:
 
 ```bash
-archstate sync
+archstate sync --commit
 ```
+
+In a Git repo, `--commit` commits `pacman.conf` and `aur.conf` after a rewrite (only when they changed), so the periodic sync does not leave the worktree dirty — a dirty worktree would otherwise block `config`, `home`, and `bootstrap`. It needs `user.name`/`user.email` configured; without a Git repo it simply rewrites the files.
 
 Timer defaults:
 
@@ -289,6 +306,7 @@ Command map:
 init       Create repo state and install archstate to ~/.local/bin.
 install    Install or update archstate in ~/.local/bin.
 sync       Rewrite package state from explicit pacman/AUR packages.
+packages   Fuzzy-select explicit packages to remove.
 status     Show tracked state vs current machine drift.
 config     Manage direct children of ~/.config.
 home       Manage direct children of ~.
@@ -304,6 +322,7 @@ Config entries are direct children of `~/.config`:
 
 ```bash
 archstate config add nvim
+archstate config list
 archstate config rm nvim
 ```
 
@@ -317,6 +336,7 @@ Home entries are direct children of `~`:
 
 ```bash
 archstate home add .zshrc
+archstate home list
 archstate home rm .zshrc
 ```
 
@@ -369,9 +389,9 @@ Files are machine-formatted and alphabetized by key. `sync` treats installed exp
 
 - Arch-only.
 - Plain files over a database.
-- No hidden shell edits.
+- No hidden shell edits; PATH setup via `install --add-to-path` is explicit and opt-in.
 - No daemon in the core workflow; auto-sync is an opt-in systemd user timer.
-- Package removal stays with pacman/paru/yay; Archstate records explicit package state via `sync`.
+- Package removal is explicit and confirmed; Archstate delegates removal to `sudo pacman -Rns` and records the result via `sync`.
 - Reproducibility means installing missing explicit packages and recreating managed config/home symlinks.
 
 ## License

@@ -49,6 +49,36 @@ func TestConfigAddReportsNothingWhenNoSourceExists(t *testing.T) {
 	}
 }
 
+func TestConfigListShowsTrackedEntries(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader+"nvim=nvim-local\nmimeapps.list=mimeapps.list\n")
+
+	if err := env.run("config", "list"); err != nil {
+		t.Fatal(err)
+	}
+
+	want := "Tracked config entries:\n" +
+		"  mimeapps.list -> config/mimeapps.list\n" +
+		"  nvim -> config/nvim-local\n"
+	if env.stdout.String() != want {
+		t.Fatalf("config list output mismatch\nwant:\n%s\ngot:\n%s", want, env.stdout.String())
+	}
+}
+
+func TestConfigListShowsEmptyState(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+
+	if err := env.run("config", "list"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := env.stdout.String(); got != "no config entries tracked\n" {
+		t.Fatalf("unexpected config list output: %q", got)
+	}
+}
+
 func TestConfigRemoveRestoresLocalConfigAndRemovesRepoData(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)

@@ -258,6 +258,31 @@ func (r *Runner) runHomeAdd(repo repoPaths, name string) error {
 	return r.runManagedAdd(repo, homeRoot(repo), repo.homePath(), name)
 }
 
+func (r *Runner) runConfigList(repo repoPaths) error {
+	return r.runManagedList(configRoot(repo), repo.configPath())
+}
+
+func (r *Runner) runHomeList(repo repoPaths) error {
+	return r.runManagedList(homeRoot(repo), repo.homePath())
+}
+
+func (r *Runner) runManagedList(root managedRoot, configPath string) error {
+	entries, err := readStateFileStrictOptional(configPath, validateManagedEntry)
+	if err != nil {
+		return err
+	}
+	label := managedCommand(root)
+	if len(entries) == 0 {
+		fmt.Fprintf(r.Stdout, "no %s entries tracked\n", label)
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "Tracked %s entries:\n", label)
+	for _, name := range sortedEntryKeys(entries) {
+		fmt.Fprintf(r.Stdout, "  %s -> %s/%s\n", name, root.RepoRoot, entries[name])
+	}
+	return nil
+}
+
 func (r *Runner) runManagedAdd(repo repoPaths, root managedRoot, configPath, name string) error {
 	return r.withRepoLock(repo, root.Kind+" add", func() error {
 		if err := r.requireCleanGitRepo(repo, managedCommand(root)+" add"); err != nil {

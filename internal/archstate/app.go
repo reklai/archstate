@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -19,6 +20,8 @@ type Runner struct {
 	Env            []string
 	Now            func() time.Time
 	ExecutablePath string
+
+	packageRemovalTUI packageRemovalTUIFunc
 }
 
 func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -71,18 +74,22 @@ func (r *Runner) Run(args []string) error {
 		if len(args) == 2 && isHelpArg(args[1]) {
 			return r.printCommandHelp("install")
 		}
-		if len(args) != 1 {
-			return fmt.Errorf("usage: archstate install")
+		addToPath, err := parseInstallArgs(args[1:])
+		if err != nil {
+			return err
 		}
-		return r.runInstall()
+		return r.runInstall(addToPath)
 	case "sync":
 		if len(args) == 2 && isHelpArg(args[1]) {
 			return r.printCommandHelp("sync")
 		}
-		if len(args) != 1 {
-			return fmt.Errorf("usage: archstate sync")
+		commit, err := parseSyncArgs(args[1:])
+		if err != nil {
+			return err
 		}
-		return r.runSync()
+		return r.runSync(commit)
+	case "packages":
+		return r.runPackages(args[1:])
 	case "status":
 		if len(args) == 2 && isHelpArg(args[1]) {
 			return r.printCommandHelp("status")
@@ -162,6 +169,7 @@ Commands:
   init       Create repo state and install archstate to ~/.local/bin.
   install    Install or update archstate in ~/.local/bin.
   sync       Rewrite package state from explicit pacman/AUR packages.
+  packages   Fuzzy-select explicit packages to remove.
   status     Show tracked state vs current machine drift.
   config     Manage direct children of ~/.config.
   home       Manage direct children of ~.
@@ -201,14 +209,18 @@ Examples:
   archstate init --no-install`)
 	case "install":
 		fmt.Fprintln(r.Stdout, `Usage:
-  archstate install
+  archstate install [--add-to-path]
 
 Install or update this archstate binary at ~/.local/bin/archstate.
-If ~/.local/bin is not in PATH, print the shell config line to add.
-Archstate does not edit shell files automatically.`)
+
+Options:
+  --add-to-path  Append the PATH line to your shell rc file (bash/zsh/fish/sh).
+
+If ~/.local/bin is not in PATH, archstate prints the exact rc file and line to
+add. Without --add-to-path it never edits shell files.`)
 	case "sync":
 		fmt.Fprintln(r.Stdout, `Usage:
-  archstate sync
+  archstate sync [--commit]
 
 Rewrite package state from this machine's explicit packages.
 
@@ -216,11 +228,45 @@ Sources:
   pacman -Qqen  -> pacman.conf
   pacman -Qqem  -> aur.conf
 
+Options:
+  --commit  In a git repo, commit pacman.conf and aur.conf after a rewrite.
+            The systemd timer uses this so background syncs do not leave the
+            repo dirty (which would block config/home/bootstrap commands).
+
 Notes:
   Existing package descriptions are preserved by package name.
   Malformed package-file lines, comments, and blanks are cleaned up.
   If package files already match this machine, sync does not snapshot or rewrite.
   An automatic snapshot is created before package files are rewritten.`)
+	case "packages":
+		fmt.Fprintln(r.Stdout, `Usage:
+  archstate packages
+
+Open an interactive package removal TUI.
+
+Behavior:
+  sync package state before opening the TUI
+  fuzzy-search Native or AUR packages
+  mark packages for removal
+  review the marked packages, then run one sudo pacman -Rns command
+  sync package state again after successful removal
+
+Keys:
+  1/2       switch Native/AUR section
+  type      fuzzy-search the active section
+  up/down   move the cursor
+  tab       switch between the package list and the marked list
+  f or /    focus the search field
+  space     mark or unmark the highlighted package
+  enter     review marked packages, then confirm removal
+  q         quit
+  esc       quit, or go back from the review page
+
+Review page:
+  up/down   move through the packages to remove
+  space     unmark a package
+  enter/y   run the removal
+  esc/n     go back to the package list`)
 	case "status":
 		fmt.Fprintln(r.Stdout, `Usage:
   archstate status
@@ -234,30 +280,36 @@ Reports:
 	case "config":
 		fmt.Fprintln(r.Stdout, `Usage:
   archstate config add <name>
+  archstate config list
   archstate config rm <name>
 
 Manage direct children of ~/.config.
 
 Commands:
   add <name>  Save ~/.config/<name> into Archstate config/ and replace it with a symlink.
+  list        Show currently tracked config entries.
   rm <name>   Stop managing ~/.config/<name>, restore it locally, and remove the saved copy.
 
 Examples:
   archstate config add nvim
+  archstate config list
   archstate config rm nvim`)
 	case "home":
 		fmt.Fprintln(r.Stdout, `Usage:
   archstate home add <name>
+  archstate home list
   archstate home rm <name>
 
 Manage direct children of ~, such as shell/session files.
 
 Commands:
   add <name>  Save ~/<name> into Archstate home/ and replace it with a symlink.
+  list        Show currently tracked home entries.
   rm <name>   Stop managing ~/<name>, restore it locally, and remove the saved copy.
 
 Examples:
   archstate home add .zshrc
+  archstate home list
   archstate home add .profile
   archstate home rm .zshrc`)
 	case "snapshot":
@@ -324,7 +376,7 @@ Doctor prints exact next commands when a fix is known.`)
   archstate service disable
   archstate service uninstall
 
-Manage the optional systemd user timer that runs archstate sync.
+Manage the optional systemd user timer that runs archstate sync --commit.
 
 Commands:
   install    Install/update ~/.local/bin/archstate and write user unit files.
@@ -340,9 +392,11 @@ Timer:
 
 Notes:
   The service is opt-in; init does not enable it.
-  sync no-ops when package state is already current.`)
+  sync no-ops when package state is already current.
+  In a git repo, --commit commits pacman.conf and aur.conf so background syncs
+  do not leave the worktree dirty (needs user.name/user.email configured).`)
 	default:
-		return fmt.Errorf("unknown help topic %q; choose init, install, sync, status, config, home, snapshot, bootstrap, doctor, or service", topic)
+		return fmt.Errorf("unknown help topic %q; choose init, install, sync, packages, status, config, home, snapshot, bootstrap, doctor, or service", topic)
 	}
 	return nil
 }
@@ -355,6 +409,16 @@ func parseInitArgs(args []string) (bool, error) {
 		return false, nil
 	}
 	return false, fmt.Errorf("usage: archstate init [--no-install]")
+}
+
+func parseInstallArgs(args []string) (bool, error) {
+	if len(args) == 0 {
+		return false, nil
+	}
+	if len(args) == 1 && args[0] == "--add-to-path" {
+		return true, nil
+	}
+	return false, fmt.Errorf("usage: archstate install [--add-to-path]")
 }
 
 func (r *Runner) runInit(install bool) error {
@@ -388,59 +452,186 @@ func (r *Runner) runInit(install bool) error {
 	}
 	fmt.Fprintf(r.Stdout, "initialized archstate repo at %s\n", repo.path)
 	if install {
-		return r.runInstall()
+		return r.runInstall(false)
 	}
 	return nil
 }
 
-func (r *Runner) runSync() error {
+func (r *Runner) runSync(commit bool) error {
 	repo, err := r.discoverExistingRepo()
 	if err != nil {
 		return err
 	}
 
+	var result packageSyncResult
+	if err := r.withRepoLock(repo, "sync", func() error {
+		var syncErr error
+		result, syncErr = r.syncPackageState(repo)
+		if syncErr != nil {
+			return syncErr
+		}
+		if commit && !result.AlreadyCurrent {
+			committed, commitErr := r.commitPackageState(repo)
+			if commitErr != nil {
+				return commitErr
+			}
+			result.Committed = committed
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	r.printPackageSyncResult(result)
+	return nil
+}
+
+type packageSyncResult struct {
+	NativeCount    int
+	AURCount       int
+	AlreadyCurrent bool
+	Committed      bool
+}
+
+// commitPackageState commits pacman.conf and aur.conf when the repo is a git
+// worktree, so that background (timer) syncs do not leave the tree dirty. It
+// commits only the package-state files and only if they actually changed, so it
+// never makes an empty commit or sweeps up unrelated edits. No-op without git.
+func (r *Runner) commitPackageState(repo repoPaths) (bool, error) {
+	if _, ok, err := repo.gitDir(); err != nil {
+		return false, err
+	} else if !ok {
+		return false, nil
+	}
+	files := []string{pacmanConfFile, aurConfFile}
+	if _, err := r.commandOutput("git", append([]string{"-C", repo.path, "add", "--"}, files...)...); err != nil {
+		return false, err
+	}
+	out, err := r.commandOutput("git", append([]string{"-C", repo.path, "status", "--porcelain", "--"}, files...)...)
+	if err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(out) == "" {
+		return false, nil
+	}
+	msg := fmt.Sprintf("archstate sync %s", r.currentTime().Format(snapshotDisplayLayout))
+	if _, err := r.commandOutput("git", append([]string{"-C", repo.path, "commit", "-m", msg, "--"}, files...)...); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (r *Runner) syncPackageState(repo repoPaths) (packageSyncResult, error) {
 	native, err := r.queryPackageNames("pacman", "-Qqen")
 	if err != nil {
-		return err
+		return packageSyncResult{}, err
 	}
 	foreign, err := r.queryPackageNames("pacman", "-Qqem")
 	if err != nil {
-		return err
+		return packageSyncResult{}, err
+	}
+	result := packageSyncResult{
+		NativeCount: len(native),
+		AURCount:    len(foreign),
 	}
 
 	existingNative := readPackageStateForSync(repo.pacmanPath())
 	existingForeign := readPackageStateForSync(repo.aurPath())
 	if packageStateIsCurrent(repo.pacmanPath(), native, existingNative) &&
 		packageStateIsCurrent(repo.aurPath(), foreign, existingForeign) {
-		fmt.Fprintf(r.Stdout, "already synced %d native and %d AUR packages\n", len(native), len(foreign))
-		return nil
+		result.AlreadyCurrent = true
+		return result, nil
 	}
 
-	var nativeState, foreignState map[string]string
-	if err := r.withRepoLock(repo, "sync", func() error {
-		allNames := append(append([]string{}, native...), foreign...)
-		descriptions, err := r.queryPackageDescriptions(allNames)
+	allNames := append(append([]string{}, native...), foreign...)
+	descriptions, err := r.queryPackageDescriptions(allNames)
+	if err != nil {
+		return packageSyncResult{}, err
+	}
+
+	nativeState := buildPackageState(native, existingNative, descriptions)
+	foreignState := buildPackageState(foreign, existingForeign, descriptions)
+	if _, err := r.createAutoSnapshot(repo); err != nil {
+		return packageSyncResult{}, err
+	}
+	if err := writeStateFile(repo.pacmanPath(), nativeState); err != nil {
+		return packageSyncResult{}, err
+	}
+	if err := writeStateFile(repo.aurPath(), foreignState); err != nil {
+		return packageSyncResult{}, err
+	}
+	return result, nil
+}
+
+func (r *Runner) printPackageSyncResult(result packageSyncResult) {
+	if result.AlreadyCurrent {
+		fmt.Fprintf(r.Stdout, "already synced %d native and %d AUR packages\n", result.NativeCount, result.AURCount)
+		return
+	}
+	if result.Committed {
+		fmt.Fprintf(r.Stdout, "synced and committed %d native and %d AUR packages\n", result.NativeCount, result.AURCount)
+		return
+	}
+	fmt.Fprintf(r.Stdout, "synced %d native and %d AUR packages\n", result.NativeCount, result.AURCount)
+}
+
+func parseSyncArgs(args []string) (bool, error) {
+	if len(args) == 0 {
+		return false, nil
+	}
+	if len(args) == 1 && args[0] == "--commit" {
+		return true, nil
+	}
+	return false, fmt.Errorf("usage: archstate sync [--commit]")
+}
+
+func (r *Runner) runPackages(args []string) error {
+	if len(args) == 1 && isHelpArg(args[0]) {
+		return r.printCommandHelp("packages")
+	}
+	if len(args) != 0 {
+		return fmt.Errorf("usage: archstate packages")
+	}
+
+	repo, err := r.discoverExistingRepo()
+	if err != nil {
+		return err
+	}
+	if r.packageRemovalTUI == nil && !interactiveTerminal(r.Stdin, r.Stdout) {
+		return fmt.Errorf("archstate packages requires an interactive terminal")
+	}
+
+	return r.withRepoLock(repo, "packages", func() error {
+		if _, err := r.syncPackageState(repo); err != nil {
+			return fmt.Errorf("pre-sync failed: %w", err)
+		}
+
+		inventory, err := loadPackageRemovalInventory(repo)
 		if err != nil {
 			return err
 		}
+		if inventory.Empty() {
+			fmt.Fprintln(r.Stdout, "no explicit packages to remove")
+			return nil
+		}
 
-		nativeState = buildPackageState(native, existingNative, descriptions)
-		foreignState = buildPackageState(foreign, existingForeign, descriptions)
-		if _, err := r.createAutoSnapshot(repo); err != nil {
+		selected, err := r.selectPackagesForRemoval(inventory)
+		if err != nil {
 			return err
 		}
-		if err := writeStateFile(repo.pacmanPath(), nativeState); err != nil {
+		if len(selected) == 0 {
+			fmt.Fprintln(r.Stdout, "no packages selected")
+			return nil
+		}
+
+		if err := r.removePackages(selected); err != nil {
 			return err
 		}
-		if err := writeStateFile(repo.aurPath(), foreignState); err != nil {
-			return err
+		if _, err := r.syncPackageState(repo); err != nil {
+			return fmt.Errorf("post-removal sync failed: %w", err)
 		}
+		fmt.Fprintf(r.Stdout, "removed %d packages and synced package state\n", len(selected))
 		return nil
-	}); err != nil {
-		return err
-	}
-	fmt.Fprintf(r.Stdout, "synced %d native and %d AUR packages\n", len(nativeState), len(foreignState))
-	return nil
+	})
 }
 
 func (r *Runner) runBootstrap(args []string) error {
@@ -498,7 +689,7 @@ func (r *Runner) runConfig(args []string) error {
 		return r.printCommandHelp("config")
 	}
 	if len(args) < 1 {
-		return fmt.Errorf("usage: archstate config add <name>\n   or: archstate config rm <name>")
+		return fmt.Errorf("usage: archstate config add <name>\n   or: archstate config list\n   or: archstate config rm <name>")
 	}
 	repo, err := r.discoverExistingRepo()
 	if err != nil {
@@ -510,6 +701,11 @@ func (r *Runner) runConfig(args []string) error {
 			return fmt.Errorf("usage: archstate config add <name>")
 		}
 		return r.runConfigAdd(repo, args[1])
+	case "list":
+		if len(args) != 1 {
+			return fmt.Errorf("usage: archstate config list")
+		}
+		return r.runConfigList(repo)
 	case "rm":
 		if len(args) != 2 {
 			return fmt.Errorf("usage: archstate config rm <name>")
@@ -525,7 +721,7 @@ func (r *Runner) runHome(args []string) error {
 		return r.printCommandHelp("home")
 	}
 	if len(args) < 1 {
-		return fmt.Errorf("usage: archstate home add <name>\n   or: archstate home rm <name>")
+		return fmt.Errorf("usage: archstate home add <name>\n   or: archstate home list\n   or: archstate home rm <name>")
 	}
 	repo, err := r.discoverExistingRepo()
 	if err != nil {
@@ -537,6 +733,11 @@ func (r *Runner) runHome(args []string) error {
 			return fmt.Errorf("usage: archstate home add <name>")
 		}
 		return r.runHomeAdd(repo, args[1])
+	case "list":
+		if len(args) != 1 {
+			return fmt.Errorf("usage: archstate home list")
+		}
+		return r.runHomeList(repo)
 	case "rm":
 		if len(args) != 2 {
 			return fmt.Errorf("usage: archstate home rm <name>")

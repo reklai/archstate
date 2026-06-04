@@ -60,6 +60,36 @@ func TestHomeAddRejectsNestedPath(t *testing.T) {
 	}
 }
 
+func TestHomeListShowsTrackedEntries(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	writeFile(t, filepath.Join(env.repo, "home.conf"), generatedHeader+".zshrc=zshrc\n.profile=.profile\n")
+
+	if err := env.run("home", "list"); err != nil {
+		t.Fatal(err)
+	}
+
+	want := "Tracked home entries:\n" +
+		"  .profile -> home/.profile\n" +
+		"  .zshrc -> home/zshrc\n"
+	if env.stdout.String() != want {
+		t.Fatalf("home list output mismatch\nwant:\n%s\ngot:\n%s", want, env.stdout.String())
+	}
+}
+
+func TestHomeListShowsEmptyState(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+
+	if err := env.run("home", "list"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := env.stdout.String(); got != "no home entries tracked\n" {
+		t.Fatalf("unexpected home list output: %q", got)
+	}
+}
+
 func TestHomeRemoveRestoresLocalFileAndRemovesRepoData(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)

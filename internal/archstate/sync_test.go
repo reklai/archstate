@@ -219,3 +219,75 @@ esac
 		t.Fatalf("aur.conf is not a fixed point:\nfirst:\n%s\nsecond:\n%s", firstAUR, got)
 	}
 }
+
+func writeFakeSyncPacman(t *testing.T, env *testEnv) {
+	t.Helper()
+	writeFakePacman(t, env.bin, `
+case "$1" in
+  -Qqen) printf 'git\n' ;;
+  -Qqem) printf '' ;;
+  -Qi)
+    shift
+    printf 'Name            : git\n'
+    printf 'Description     : version control\n\n'
+    ;;
+  *) echo "unexpected pacman args: $*" >&2; exit 2 ;;
+esac
+`)
+}
+
+func TestSyncCommitCommitsPackageStateInGitRepo(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	if err := os.MkdirAll(filepath.Join(env.repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env.r.Now = fixedTime(2026, 6, 4, 22, 0, 0)
+	writeFakeSyncPacman(t, env)
+	gitLog := filepath.Join(env.root, "git.log")
+	writeExecutable(t, filepath.Join(env.bin, "git"), `
+printf '%s\n' "$*" >> `+gitLog+`
+case "$3" in
+  status) printf ' M pacman.conf\n' ;;
+esac
+exit 0
+`)
+	writeFile(t, filepath.Join(env.repo, "pacman.conf"), generatedHeader+"old=old\n")
+
+	if err := env.run("sync", "--commit"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(env.stdout.String(), "synced and committed") {
+		t.Fatalf("expected commit confirmation:\n%s", env.stdout.String())
+	}
+	log := readFile(t, gitLog)
+	if !strings.Contains(log, "add -- pacman.conf aur.conf") {
+		t.Fatalf("git add was not invoked for the package files:\n%s", log)
+	}
+	if !strings.Contains(log, "commit -m archstate sync") {
+		t.Fatalf("git commit was not invoked:\n%s", log)
+	}
+}
+
+func TestSyncCommitWithoutGitRepoDoesNotCommit(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	env.r.Now = fixedTime(2026, 6, 4, 22, 10, 0)
+	writeFakeSyncPacman(t, env)
+	writeExecutable(t, filepath.Join(env.bin, "git"), `
+echo "git must not run without a .git dir: $*" >&2
+exit 3
+`)
+	writeFile(t, filepath.Join(env.repo, "pacman.conf"), generatedHeader+"old=old\n")
+
+	if err := env.run("sync", "--commit"); err != nil {
+		t.Fatal(err)
+	}
+	out := env.stdout.String()
+	if strings.Contains(out, "committed") {
+		t.Fatalf("must not commit without a git repo:\n%s", out)
+	}
+	if !strings.Contains(out, "synced 1 native and 0 AUR packages") {
+		t.Fatalf("unexpected sync output:\n%s", out)
+	}
+}

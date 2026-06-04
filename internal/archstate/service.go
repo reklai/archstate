@@ -46,7 +46,7 @@ func (r *Runner) runServiceInstall() error {
 	if err != nil {
 		return err
 	}
-	if err := r.runInstall(); err != nil {
+	if err := r.runInstall(false); err != nil {
 		return err
 	}
 
@@ -147,7 +147,7 @@ ConditionPathExists=%s
 
 [Service]
 Type=oneshot
-ExecStart=%%h/.local/bin/archstate sync
+ExecStart=%%h/.local/bin/archstate sync --commit
 WorkingDirectory=%s
 Nice=10
 IOSchedulingClass=idle

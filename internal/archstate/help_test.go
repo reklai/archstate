@@ -19,6 +19,7 @@ func TestHelpAliasesPrintCanonicalHelp(t *testing.T) {
 		"Common workflow:",
 		"Commands:",
 		"  init       Create repo state and install archstate to ~/.local/bin.",
+		"  packages   Fuzzy-select explicit packages to remove.",
 		"  snapshot   Save, list, restore, or remove repo-state snapshots.",
 		"  service    Manage the optional systemd user sync timer.",
 		"archstate bootstrap --preview",
@@ -60,6 +61,32 @@ func TestCommandTopicHelp(t *testing.T) {
 			t.Fatalf("snapshot help missing %q:\n%s", want, env.stdout.String())
 		}
 	}
+
+	if err := env.run("help", "config"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Usage:\n  archstate config add <name>",
+		"archstate config list",
+		"list        Show currently tracked config entries.",
+	} {
+		if !strings.Contains(env.stdout.String(), want) {
+			t.Fatalf("config help missing %q:\n%s", want, env.stdout.String())
+		}
+	}
+
+	if err := env.run("help", "home"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Usage:\n  archstate home add <name>",
+		"archstate home list",
+		"list        Show currently tracked home entries.",
+	} {
+		if !strings.Contains(env.stdout.String(), want) {
+			t.Fatalf("home help missing %q:\n%s", want, env.stdout.String())
+		}
+	}
 }
 
 func TestHelpCommandOrderFollowsUserFlow(t *testing.T) {
@@ -78,6 +105,7 @@ func TestHelpCommandOrderFollowsUserFlow(t *testing.T) {
 		"  init",
 		"  install",
 		"  sync",
+		"  packages",
 		"  status",
 		"  config",
 		"  home",
@@ -123,6 +151,7 @@ func TestCommandFlagHelpMatchesTopicHelp(t *testing.T) {
 		"init",
 		"install",
 		"sync",
+		"packages",
 		"status",
 		"config",
 		"home",

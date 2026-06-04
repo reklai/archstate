@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-func (r *Runner) runInstall() error {
+func (r *Runner) runInstall(addToPath bool) error {
 	source, err := r.installSourcePath()
 	if err != nil {
 		return err
@@ -28,8 +28,7 @@ func (r *Runner) runInstall() error {
 	} else {
 		fmt.Fprintf(r.Stdout, "archstate is already installed at %s\n", homeRelativePath(r.Home, dest))
 	}
-	r.printPathHint(destDir)
-	return nil
+	return r.handlePathSetup(destDir, addToPath)
 }
 
 func (r *Runner) installSourcePath() (string, error) {
@@ -101,13 +100,127 @@ func installExecutable(source, dest string) (bool, error) {
 	return true, nil
 }
 
-func (r *Runner) printPathHint(dir string) {
+// handlePathSetup makes the install dir usable from a fresh shell. By default it
+// only prints the exact rc file and line to add (archstate never edits shell
+// files behind your back). With --add-to-path it appends that line to the rc
+// file for the detected shell, idempotently.
+func (r *Runner) handlePathSetup(dir string, addToPath bool) error {
 	if pathContainsDir(envValue(r.Env, "PATH"), dir) {
-		return
+		if addToPath {
+			fmt.Fprintf(r.Stdout, "%s is already in PATH\n", homeRelativePath(r.Home, dir))
+		}
+		return nil
 	}
+
+	shell := detectShell(envValue(r.Env, "SHELL"))
+	rcFile := r.shellRCFile(shell)
+	exportLine := pathExportLine(shell, r.Home, dir)
+
+	if addToPath {
+		added, err := appendLineIfMissing(rcFile, exportLine)
+		if err != nil {
+			return fmt.Errorf("could not update %s: %w", homeRelativePath(r.Home, rcFile), err)
+		}
+		if added {
+			fmt.Fprintf(r.Stdout, "added %s to PATH in %s\n", homeRelativePath(r.Home, dir), homeRelativePath(r.Home, rcFile))
+			fmt.Fprintf(r.Stdout, "restart your shell or run: source %s\n", homeRelativePath(r.Home, rcFile))
+		} else {
+			fmt.Fprintf(r.Stdout, "%s already configured in %s\n", homeRelativePath(r.Home, dir), homeRelativePath(r.Home, rcFile))
+		}
+		return nil
+	}
+
 	fmt.Fprintf(r.Stdout, "%s is not in PATH\n\n", homeRelativePath(r.Home, dir))
-	fmt.Fprintln(r.Stdout, "Add this to your shell config:")
-	fmt.Fprintln(r.Stdout, `  export PATH="$HOME/.local/bin:$PATH"`)
+	fmt.Fprintln(r.Stdout, "Add it automatically with:")
+	fmt.Fprintln(r.Stdout, "  archstate install --add-to-path")
+	fmt.Fprintf(r.Stdout, "\nor add this line to %s yourself:\n", homeRelativePath(r.Home, rcFile))
+	fmt.Fprintf(r.Stdout, "  %s\n", exportLine)
+	return nil
+}
+
+func detectShell(shellPath string) string {
+	switch filepath.Base(strings.TrimSpace(shellPath)) {
+	case "bash":
+		return "bash"
+	case "zsh":
+		return "zsh"
+	case "fish":
+		return "fish"
+	default:
+		return "sh"
+	}
+}
+
+func (r *Runner) shellRCFile(shell string) string {
+	switch shell {
+	case "bash":
+		return filepath.Join(r.Home, ".bashrc")
+	case "zsh":
+		if zdotdir := envValue(r.Env, "ZDOTDIR"); zdotdir != "" {
+			return filepath.Join(zdotdir, ".zshrc")
+		}
+		return filepath.Join(r.Home, ".zshrc")
+	case "fish":
+		return filepath.Join(r.Home, ".config", "fish", "config.fish")
+	default:
+		return filepath.Join(r.Home, ".profile")
+	}
+}
+
+func pathExportLine(shell, home, dir string) string {
+	target := homeEnvPath(home, dir)
+	if shell == "fish" {
+		return "fish_add_path " + target
+	}
+	return fmt.Sprintf(`export PATH="%s:$PATH"`, target)
+}
+
+// homeEnvPath renders dir as $HOME/... when it lives under home, so the rc line
+// stays portable; $HOME (not ~) is used because ~ does not expand inside quotes.
+func homeEnvPath(home, dir string) string {
+	home = filepath.Clean(home)
+	dir = filepath.Clean(dir)
+	if home == "" {
+		return dir
+	}
+	if rest, ok := strings.CutPrefix(dir, home+string(os.PathSeparator)); ok {
+		return "$HOME/" + filepath.ToSlash(rest)
+	}
+	return dir
+}
+
+// appendLineIfMissing appends line to path (creating it and its parent dir if
+// needed) unless an identical line is already present. Returns whether it wrote.
+func appendLineIfMissing(path, line string) (bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return false, err
+	}
+	existing := string(data)
+	for have := range strings.SplitSeq(existing, "\n") {
+		if strings.TrimSpace(have) == strings.TrimSpace(line) {
+			return false, nil
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, err
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+	var b strings.Builder
+	if len(existing) > 0 && !strings.HasSuffix(existing, "\n") {
+		b.WriteString("\n")
+	}
+	b.WriteString("\n# Added by archstate\n")
+	b.WriteString(line)
+	b.WriteString("\n")
+	if _, err := file.WriteString(b.String()); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func pathContainsDir(pathValue, dir string) bool {
@@ -139,9 +252,8 @@ func homeRelativePath(home, path string) string {
 	if path == home {
 		return "~"
 	}
-	prefix := home + string(os.PathSeparator)
-	if strings.HasPrefix(path, prefix) {
-		return "~" + string(os.PathSeparator) + strings.TrimPrefix(path, prefix)
+	if rest, ok := strings.CutPrefix(path, home+string(os.PathSeparator)); ok {
+		return "~" + string(os.PathSeparator) + rest
 	}
 	return path
 }
