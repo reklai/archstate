@@ -111,3 +111,111 @@ esac
 		t.Fatalf("sync should not create an auto snapshot when state is current: %v", err)
 	}
 }
+
+func TestSyncFailsWhenPacmanIsUnavailable(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+
+	err := env.run("sync")
+	if err == nil {
+		t.Fatal("expected sync to fail without pacman")
+	}
+	if !strings.Contains(err.Error(), "pacman not found in PATH") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSyncDoesNotSnapshotOrRewriteWhenDescriptionQueryFails(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	env.r.Now = fixedTime(2026, 6, 4, 17, 10, 0)
+	writeFakePacman(t, env.bin, `
+case "$1" in
+  -Qqen)
+    printf 'git\n'
+    ;;
+  -Qqem)
+    printf ''
+    ;;
+  -Qi)
+    echo "pacman database is locked" >&2
+    exit 1
+    ;;
+  *)
+    echo "unexpected pacman args: $*" >&2
+    exit 2
+    ;;
+esac
+`)
+	writeFile(t, filepath.Join(env.repo, "pacman.conf"), generatedHeader+"old=old desc\n")
+
+	err := env.run("sync")
+	if err == nil {
+		t.Fatal("expected sync to fail on description query")
+	}
+	if !strings.Contains(err.Error(), "pacman -Qi git failed") || !strings.Contains(err.Error(), "pacman database is locked") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := readFile(t, filepath.Join(env.repo, "pacman.conf")); !strings.Contains(got, "old=old desc\n") {
+		t.Fatalf("sync rewrote package state after description failure:\n%s", got)
+	}
+	if _, statErr := os.Lstat(filepath.Join(env.repo, ".snapshots", "auto-2026-06-04_17-10-00")); !os.IsNotExist(statErr) {
+		t.Fatalf("sync should not snapshot after description failure")
+	}
+}
+
+func TestSyncProducesDeterministicFixedPoint(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	env.r.Now = fixedTime(2026, 6, 4, 21, 0, 0)
+	writeFakePacman(t, env.bin, `
+case "$1" in
+  -Qqen)
+    printf 'neovim\ngit\n'
+    ;;
+  -Qqem)
+    printf 'paru-bin\n'
+    ;;
+  -Qi)
+    shift
+    for pkg in "$@"; do
+      case "$pkg" in
+        git) desc='the fast distributed version control system' ;;
+        neovim) desc='vim-fork focused on extensibility and usability' ;;
+        paru-bin) desc='feature packed AUR helper' ;;
+        *) desc='' ;;
+      esac
+      printf 'Name            : %s\n' "$pkg"
+      printf 'Description     : %s\n\n' "$desc"
+    done
+    ;;
+  *)
+    echo "unexpected pacman args: $*" >&2
+    exit 2
+    ;;
+esac
+`)
+	// Start from a non-canonical state so the first sync must rewrite.
+	writeFile(t, filepath.Join(env.repo, "pacman.conf"), generatedHeader+"git=old\nbad line\n")
+
+	if err := env.run("sync"); err != nil {
+		t.Fatal(err)
+	}
+	firstPacman := readFile(t, filepath.Join(env.repo, "pacman.conf"))
+	firstAUR := readFile(t, filepath.Join(env.repo, "aur.conf"))
+
+	// A second sync must be a byte-for-byte no-op: sync is a deterministic fixed
+	// point, independent of map iteration order.
+	if err := env.run("sync"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(env.stdout.String(), "already synced") {
+		t.Fatalf("second sync was not a no-op:\n%s", env.stdout.String())
+	}
+	if got := readFile(t, filepath.Join(env.repo, "pacman.conf")); got != firstPacman {
+		t.Fatalf("pacman.conf is not a fixed point:\nfirst:\n%s\nsecond:\n%s", firstPacman, got)
+	}
+	if got := readFile(t, filepath.Join(env.repo, "aur.conf")); got != firstAUR {
+		t.Fatalf("aur.conf is not a fixed point:\nfirst:\n%s\nsecond:\n%s", firstAUR, got)
+	}
+}

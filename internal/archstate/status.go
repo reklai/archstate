@@ -1,6 +1,9 @@
 package archstate
 
-import "fmt"
+import (
+	"fmt"
+	"io"
+)
 
 type PackageDrift struct {
 	Missing   []string
@@ -12,15 +15,15 @@ func (r *Runner) runStatus() error {
 	if err != nil {
 		return err
 	}
-	nativeState, err := readStateFileStrict(repo.pacmanPath(), validatePackageEntry)
+	nativeState, err := readStateFileStrictOptional(repo.pacmanPath(), validatePackageEntry)
 	if err != nil {
 		return err
 	}
-	aurState, err := readStateFileStrict(repo.aurPath(), validatePackageEntry)
+	aurState, err := readStateFileStrictOptional(repo.aurPath(), validatePackageEntry)
 	if err != nil {
 		return err
 	}
-	configState, err := readStateFileStrict(repo.configPath(), validateManagedEntry)
+	configState, err := readStateFileStrictOptional(repo.configPath(), validateManagedEntry)
 	if err != nil {
 		return err
 	}
@@ -75,13 +78,8 @@ func (r *Runner) printStatus(native, aur PackageDrift, configActions, homeAction
 	printManagedStatus(r.Stdout, "Home file status:", "no home files declared", homeActions)
 }
 
-func printManagedStatus(w interface{ Write([]byte) (int, error) }, title, empty string, actions []ManagedAction) {
-	fmt.Fprintln(w, title)
-	if len(actions) == 0 {
-		fmt.Fprintf(w, "  %s\n", empty)
-		return
-	}
-	for _, action := range actions {
+func printManagedStatus(w io.Writer, title, empty string, actions []ManagedAction) {
+	printManagedSection(w, title, empty, actions, func(w io.Writer, action ManagedAction) {
 		switch action.Kind {
 		case ManagedNoopAction:
 			fmt.Fprintf(w, "  ok %s\n", action.Name)
@@ -96,5 +94,5 @@ func printManagedStatus(w interface{ Write([]byte) (int, error) }, title, empty 
 		case ManagedOverwriteAction:
 			fmt.Fprintf(w, "  overwrite %s: %s -> %s\n", action.Name, action.RepoPath, action.LocalPath)
 		}
-	}
+	})
 }

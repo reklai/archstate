@@ -2,6 +2,7 @@ package archstate
 
 import (
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 )
@@ -24,20 +25,19 @@ type BootstrapPlan struct {
 	AURHelperError     error
 	ConfigActions      []ManagedAction
 	HomeActions        []ManagedAction
-	ManagedConflicts   []ManagedConflict
 	ManagedErrors      []error
 }
 
 func (r *Runner) buildBootstrapPlan(repo repoPaths, opts BootstrapOptions) (BootstrapPlan, error) {
-	nativeState, err := readStateFileStrict(repo.pacmanPath(), validatePackageEntry)
+	nativeState, err := readStateFileStrictOptional(repo.pacmanPath(), validatePackageEntry)
 	if err != nil {
 		return BootstrapPlan{}, err
 	}
-	aurState, err := readStateFileStrict(repo.aurPath(), validatePackageEntry)
+	aurState, err := readStateFileStrictOptional(repo.aurPath(), validatePackageEntry)
 	if err != nil {
 		return BootstrapPlan{}, err
 	}
-	configState, err := readStateFileStrict(repo.configPath(), validateManagedEntry)
+	configState, err := readStateFileStrictOptional(repo.configPath(), validateManagedEntry)
 	if err != nil {
 		return BootstrapPlan{}, err
 	}
@@ -69,10 +69,7 @@ func (r *Runner) buildBootstrapPlan(repo repoPaths, opts BootstrapOptions) (Boot
 		}
 	}
 	for _, action := range plan.allManagedActions() {
-		switch action.Kind {
-		case ManagedConflictAction:
-			plan.ManagedConflicts = append(plan.ManagedConflicts, ManagedConflict{Action: action})
-		case ManagedErrorAction:
+		if action.Kind == ManagedErrorAction {
 			plan.ManagedErrors = append(plan.ManagedErrors, action.Err)
 		}
 	}
@@ -98,13 +95,8 @@ func (r *Runner) printBootstrapPlan(plan BootstrapPlan) {
 	printManagedPlan(r.Stdout, "Home file plan:", "no home files declared", plan.HomeActions)
 }
 
-func printManagedPlan(w interface{ Write([]byte) (int, error) }, title, empty string, actions []ManagedAction) {
-	fmt.Fprintln(w, title)
-	if len(actions) == 0 {
-		fmt.Fprintf(w, "  %s\n", empty)
-		return
-	}
-	for _, action := range actions {
+func printManagedPlan(w io.Writer, title, empty string, actions []ManagedAction) {
+	printManagedSection(w, title, empty, actions, func(w io.Writer, action ManagedAction) {
 		switch action.Kind {
 		case ManagedNoopAction:
 			fmt.Fprintf(w, "  ok %s\n", action.LocalPath)
@@ -119,10 +111,10 @@ func printManagedPlan(w interface{ Write([]byte) (int, error) }, title, empty st
 		case ManagedErrorAction:
 			fmt.Fprintf(w, "  error %s: %v\n", action.LocalPath, action.Err)
 		}
-	}
+	})
 }
 
-func printPackageList(w interface{ Write([]byte) (int, error) }, label string, names []string) {
+func printPackageList(w io.Writer, label string, names []string) {
 	if len(names) == 0 {
 		fmt.Fprintf(w, "  %s: none\n", label)
 		return

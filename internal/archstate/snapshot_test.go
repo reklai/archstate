@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -222,8 +223,207 @@ func TestSnapshotSaveRequiresName(t *testing.T) {
 	}
 }
 
+func TestSnapshotRestoreRemovesStateMissingFromSnapshot(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	env.r.Now = fixedTime(2026, 6, 4, 18, 0, 0)
+
+	if err := env.run("snapshot", "save", "legacy"); err != nil {
+		t.Fatal(err)
+	}
+	id := "manual-2026-06-04_18-00-00-legacy"
+	if err := os.Remove(filepath.Join(env.repo, ".snapshots", id, "home.conf")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(env.repo, ".snapshots", id, "home")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(env.repo, "home.conf"), generatedHeader+".zshrc=.zshrc\n")
+	writeFile(t, filepath.Join(env.repo, "home", ".zshrc"), "current home state\n")
+
+	env.r.Now = fixedTime(2026, 6, 4, 18, 1, 0)
+	if err := env.run("snapshot", "restore", id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(env.repo, "home.conf")); !os.IsNotExist(err) {
+		t.Fatalf("home.conf should have been removed, got %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(env.repo, "home")); !os.IsNotExist(err) {
+		t.Fatalf("home dir should have been removed, got %v", err)
+	}
+}
+
+func TestSnapshotRestoreStagesBeforeReplacingCurrentState(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	id := "manual-2026-06-04_18-10-00-bad"
+	snapshotRoot := filepath.Join(env.repo, ".snapshots", id)
+	writeFile(t, filepath.Join(snapshotRoot, "pacman.conf"), generatedHeader+"git=from snapshot\n")
+	writeFile(t, filepath.Join(snapshotRoot, "config.conf"), generatedHeader+"nvim=nvim\n")
+	if err := os.MkdirAll(filepath.Join(snapshotRoot, "config", "nvim"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(snapshotRoot, "config", "nvim", "state.fifo"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(env.repo, "pacman.conf"), generatedHeader+"git=current\n")
+
+	env.r.Now = fixedTime(2026, 6, 4, 18, 11, 0)
+	err := env.run("snapshot", "restore", id)
+	if err == nil {
+		t.Fatal("expected restore to fail on unsupported file type")
+	}
+	if !strings.Contains(err.Error(), "unsupported file type") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := readFile(t, filepath.Join(env.repo, "pacman.conf")); !strings.Contains(got, "git=current\n") {
+		t.Fatalf("restore replaced current state before staging completed:\n%s", got)
+	}
+	for _, entry := range readDir(t, env.repo) {
+		if strings.HasPrefix(entry.Name(), ".archstate-snapshot-restore-") {
+			t.Fatalf("restore stage should have been cleaned up: %s", entry.Name())
+		}
+	}
+}
+
+func TestSnapshotSaveRejectsUnsupportedFileTypeAndCleansPartialSnapshot(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	if err := os.MkdirAll(filepath.Join(env.repo, "config", "nvim"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(env.repo, "config", "nvim", "state.fifo"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	env.r.Now = fixedTime(2026, 6, 4, 18, 20, 0)
+	err := env.run("snapshot", "save", "bad")
+	if err == nil {
+		t.Fatal("expected snapshot save to fail on unsupported file type")
+	}
+	if !strings.Contains(err.Error(), "unsupported file type") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(env.repo, ".snapshots", "manual-2026-06-04_18-20-00-bad")); !os.IsNotExist(statErr) {
+		t.Fatalf("partial snapshot should have been removed")
+	}
+}
+
+func TestSnapshotIDCollisionsWithinSameSecond(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	repo, err := env.r.discoverExistingRepo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.r.Now = fixedTime(2026, 6, 4, 18, 30, 0)
+
+	firstAuto, err := env.r.createAutoSnapshot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondAuto, err := env.r.createAutoSnapshot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstAuto.ID != "auto-2026-06-04_18-30-00" || secondAuto.ID != "auto-2026-06-04_18-30-00+2" {
+		t.Fatalf("unexpected auto collision IDs: %q %q", firstAuto.ID, secondAuto.ID)
+	}
+
+	firstManual, err := env.r.createSnapshot(repo, "manual", "baseline")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondManual, err := env.r.createSnapshot(repo, "manual", "baseline")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstManual.ID != "manual-2026-06-04_18-30-00-baseline" || secondManual.ID != "manual-2026-06-04_18-30-00-baseline+2" {
+		t.Fatalf("unexpected manual collision IDs: %q %q", firstManual.ID, secondManual.ID)
+	}
+	// The collision counter must not leak into the name, and the id must
+	// round-trip through parseSnapshotID (as listing reads it from disk).
+	if firstManual.Name != "baseline" || secondManual.Name != "baseline" {
+		t.Fatalf("unexpected manual collision names: %q %q", firstManual.Name, secondManual.Name)
+	}
+	reparsed, err := parseSnapshotID(secondManual.ID)
+	if err != nil {
+		t.Fatalf("collision id did not parse: %v", err)
+	}
+	if reparsed.Name != "baseline" {
+		t.Fatalf("reparsed collision name = %q, want baseline", reparsed.Name)
+	}
+}
+
+func TestSnapshotsPreserveExecutableBits(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	script := filepath.Join(env.repo, "home", ".local-bin")
+	if err := os.MkdirAll(filepath.Dir(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env.r.Now = fixedTime(2026, 6, 4, 18, 40, 0)
+	if err := env.run("snapshot", "save", "perms"); err != nil {
+		t.Fatal(err)
+	}
+	snapshotScript := filepath.Join(env.repo, ".snapshots", "manual-2026-06-04_18-40-00-perms", "home", ".local-bin")
+	assertModePerm(t, snapshotScript, 0o755)
+
+	if err := os.Chmod(script, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env.r.Now = fixedTime(2026, 6, 4, 18, 41, 0)
+	if err := env.run("snapshot", "restore", "manual-2026-06-04_18-40-00-perms"); err != nil {
+		t.Fatal(err)
+	}
+	assertModePerm(t, script, 0o755)
+}
+
 func fixedTime(year int, month time.Month, day, hour, minute, second int) func() time.Time {
 	return func() time.Time {
 		return time.Date(year, month, day, hour, minute, second, 0, time.Local)
+	}
+}
+
+func assertModePerm(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != want {
+		t.Fatalf("%s mode = %o, want %o", path, got, want)
+	}
+}
+
+// TestSnapshotStateNamesCoversRepoState pins the invariant that snapshots
+// capture exactly the repo-state components a fresh repo creates (minus the
+// marker). Adding a new state file without updating snapshotStateNames (or
+// vice versa) fails here, preventing silent snapshot/restore data loss.
+func TestSnapshotStateNamesCoversRepoState(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+
+	captured := make(map[string]bool)
+	for _, name := range snapshotStateNames() {
+		captured[name] = true
+	}
+
+	for _, entry := range readDir(t, env.repo) {
+		name := entry.Name()
+		switch name {
+		case markerFile, ".snapshots", ".git":
+			continue
+		}
+		if !captured[name] {
+			t.Errorf("repo state %q is created by init but not captured by snapshotStateNames()", name)
+		}
+		delete(captured, name)
+	}
+	for name := range captured {
+		t.Errorf("snapshotStateNames() lists %q which a fresh repo does not create", name)
 	}
 }

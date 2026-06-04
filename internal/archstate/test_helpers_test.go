@@ -101,3 +101,12 @@ func writeFile(t *testing.T, path, data string) {
 		t.Fatal(err)
 	}
 }
+
+func readDir(t *testing.T, path string) []os.DirEntry {
+	t.Helper()
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return entries
+}

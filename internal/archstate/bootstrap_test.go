@@ -262,6 +262,86 @@ esac
 	}
 }
 
+func TestBootstrapRejectsUnsupportedAURHelperFlag(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+
+	err := env.run("bootstrap", "--aur-helper", "pacaur")
+	if err == nil {
+		t.Fatal("expected unsupported helper to fail")
+	}
+	if !strings.Contains(err.Error(), `unsupported AUR helper "pacaur"; choose paru or yay`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBootstrapWithNoAURPackagesDoesNotRequireAURHelper(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	writeFakePacman(t, env.bin, `
+case "$1" in
+  -Qq)
+    printf ''
+    ;;
+  *)
+    echo "unexpected pacman args: $*" >&2
+    exit 2
+    ;;
+esac
+`)
+	writeFile(t, filepath.Join(env.repo, "pacman.conf"), generatedHeader)
+	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader)
+	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader)
+
+	if err := env.run("bootstrap"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBootstrapLeavesNativeInstallWhenAURInstallFails(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	logPath := filepath.Join(env.root, "partial-install.log")
+	env.r.Env = append(env.r.Env, "ARCHSTATE_LOG="+logPath)
+	writeFakePacman(t, env.bin, `
+case "$1" in
+  -Qq)
+    printf ''
+    ;;
+  *)
+    echo "unexpected pacman args: $*" >&2
+    exit 2
+    ;;
+esac
+`)
+	writeExecutable(t, filepath.Join(env.bin, "sudo"), "echo \"sudo $*\" >> \"$ARCHSTATE_LOG\"\n")
+	writeExecutable(t, filepath.Join(env.bin, "paru"), `
+echo "paru $*" >> "$ARCHSTATE_LOG"
+echo "target not found: missing-aur" >&2
+exit 1
+`)
+	writeFile(t, filepath.Join(env.repo, "pacman.conf"), generatedHeader+"git=desc\n")
+	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader+"missing-aur=desc\n")
+	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader)
+
+	err := env.run("bootstrap")
+	if err == nil {
+		t.Fatal("expected AUR install failure")
+	}
+	if !strings.Contains(err.Error(), "paru -S --needed missing-aur failed") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	log := readFile(t, logPath)
+	for _, want := range []string{
+		"sudo pacman -S --needed git",
+		"paru -S --needed missing-aur",
+	} {
+		if !strings.Contains(log, want) {
+			t.Fatalf("install log missing %q:\n%s", want, log)
+		}
+	}
+}
+
 func TestBootstrapAURHelperFlagDoesNotBypassManagedConflictSafety(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
@@ -525,5 +605,93 @@ esac
 	}
 	if !strings.Contains(env.stdout.String(), "overwrite "+repoTarget+" -> "+local) {
 		t.Fatalf("preview did not show overwrite action:\n%s", env.stdout.String())
+	}
+}
+
+func TestBootstrapAdoptRejectsForeignLocalSymlink(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	writeFakePacman(t, env.bin, `
+case "$1" in
+  -Qq)
+    printf ''
+    ;;
+  *)
+    echo "unexpected pacman args: $*" >&2
+    exit 2
+    ;;
+esac
+`)
+	writeFile(t, filepath.Join(env.repo, "pacman.conf"), generatedHeader)
+	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader)
+	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader+"nvim=nvim\n")
+	foreignTarget := filepath.Join(env.root, "elsewhere", "nvim")
+	if err := os.MkdirAll(foreignTarget, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(env.home, ".config", "nvim")
+	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(foreignTarget, local); err != nil {
+		t.Fatal(err)
+	}
+
+	err := env.run("bootstrap", "--adopt")
+	if err == nil {
+		t.Fatal("expected bootstrap adopt to reject foreign symlink")
+	}
+	if !strings.Contains(err.Error(), "cannot adopt symlink") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	target, err := os.Readlink(local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target != foreignTarget {
+		t.Fatalf("foreign symlink was changed: %s", target)
+	}
+}
+
+func TestBootstrapOverwriteReplacesForeignLocalSymlink(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	writeFakePacman(t, env.bin, `
+case "$1" in
+  -Qq)
+    printf ''
+    ;;
+  *)
+    echo "unexpected pacman args: $*" >&2
+    exit 2
+    ;;
+esac
+`)
+	writeFile(t, filepath.Join(env.repo, "pacman.conf"), generatedHeader)
+	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader)
+	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader+"nvim=nvim\n")
+	repoTarget := filepath.Join(env.repo, "config", "nvim")
+	writeFile(t, filepath.Join(repoTarget, "init.lua"), "tracked config\n")
+	foreignTarget := filepath.Join(env.root, "elsewhere", "nvim")
+	if err := os.MkdirAll(foreignTarget, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(env.home, ".config", "nvim")
+	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(foreignTarget, local); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := env.run("bootstrap", "--overwrite"); err != nil {
+		t.Fatal(err)
+	}
+	target, err := os.Readlink(local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target != repoTarget {
+		t.Fatalf("wrong symlink target: %s", target)
 	}
 }

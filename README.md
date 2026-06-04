@@ -222,6 +222,8 @@ Automatic snapshots are created silently before risky Archstate mutations and pr
 
 Snapshots do not capture installed packages, pacman cache, system files, or the full home directory.
 
+Repo-state mutations take a per-repo lock so two Archstate commands do not rewrite state at the same time. If the Archstate repo is a Git worktree, destructive repo rewrites require a clean worktree first; commit or stash local changes before running `config add`, `config rm`, `home add`, `home rm`, `bootstrap --adopt`, `bootstrap --overwrite`, or `snapshot restore`. `sync` is allowed to rewrite package state with a dirty worktree because it treats the current machine as source of truth and creates an automatic snapshot first.
+
 ## Optional Auto-Sync
 
 Manual `archstate sync` is the core workflow. If you want Archstate to keep package state fresh automatically, install the optional systemd user timer:

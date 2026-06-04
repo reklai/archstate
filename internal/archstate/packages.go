@@ -68,20 +68,33 @@ func (r *Runner) queryPackageDescriptions(names []string) (map[string]string, er
 func parsePacmanInfo(out string) map[string]string {
 	descriptions := make(map[string]string)
 	var name, description string
+	inDescription := false
 	commit := func() {
 		if name != "" {
 			descriptions[name] = description
 		}
 		name = ""
 		description = ""
+		inDescription = false
 	}
 	for _, line := range strings.Split(out, "\n") {
 		if strings.TrimSpace(line) == "" {
 			commit()
 			continue
 		}
+		// pacman -Qi wraps long values onto indented continuation lines that
+		// carry no "Key :" at column 0. Fold them into the field being captured
+		// so a wrapped Description is not silently truncated, which would make
+		// committed package state depend on the terminal width at sync time.
+		if line[0] == ' ' || line[0] == '\t' {
+			if inDescription {
+				description += " " + strings.TrimSpace(line)
+			}
+			continue
+		}
 		key, value, ok := strings.Cut(line, ":")
 		if !ok {
+			inDescription = false
 			continue
 		}
 		switch strings.TrimSpace(key) {
@@ -90,8 +103,12 @@ func parsePacmanInfo(out string) map[string]string {
 				commit()
 			}
 			name = strings.TrimSpace(value)
+			inDescription = false
 		case "Description":
 			description = strings.TrimSpace(value)
+			inDescription = true
+		default:
+			inDescription = false
 		}
 	}
 	commit()
@@ -318,6 +335,10 @@ func (r *Runner) lookPath(name string) (string, error) {
 	return "", fmt.Errorf("%s not found in PATH", name)
 }
 
+// envValue reads key from env only. r.Env is the authoritative environment:
+// setDefaults populates it from os.Environ when unset, so there is no ambient
+// os.Getenv fallback that could leak host state into an explicitly configured
+// Runner (tests, embedders).
 func envValue(env []string, key string) string {
 	prefix := key + "="
 	for i := len(env) - 1; i >= 0; i-- {
@@ -325,7 +346,7 @@ func envValue(env []string, key string) string {
 			return strings.TrimPrefix(env[i], prefix)
 		}
 	}
-	return os.Getenv(key)
+	return ""
 }
 
 func isExecutable(path string) bool {

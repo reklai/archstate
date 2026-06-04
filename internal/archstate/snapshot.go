@@ -40,8 +40,12 @@ func (r *Runner) runSnapshot(args []string) error {
 		if len(args) != 2 {
 			return fmt.Errorf("usage: archstate snapshot save <name>")
 		}
-		info, err := r.createSnapshot(repo, "manual", args[1])
-		if err != nil {
+		var info snapshotInfo
+		if err := r.withRepoLock(repo, "snapshot save", func() error {
+			var err error
+			info, err = r.createSnapshot(repo, "manual", args[1])
+			return err
+		}); err != nil {
 			return err
 		}
 		fmt.Fprintf(r.Stdout, "saved snapshot %s  %s  %s\n", info.ID, info.DisplayTime, info.Name)
@@ -56,10 +60,15 @@ func (r *Runner) runSnapshot(args []string) error {
 		if len(args) != 2 {
 			return fmt.Errorf("usage: archstate snapshot restore <id>")
 		}
-		if _, err := r.createAutoSnapshot(repo); err != nil {
-			return err
-		}
-		if err := restoreSnapshot(repo, args[1]); err != nil {
+		if err := r.withRepoLock(repo, "snapshot restore", func() error {
+			if err := r.requireCleanGitRepo(repo, "snapshot restore"); err != nil {
+				return err
+			}
+			if _, err := r.createAutoSnapshot(repo); err != nil {
+				return err
+			}
+			return restoreSnapshot(repo, args[1])
+		}); err != nil {
 			return err
 		}
 		fmt.Fprintf(r.Stdout, "restored snapshot %s\n", args[1])
@@ -68,7 +77,9 @@ func (r *Runner) runSnapshot(args []string) error {
 		if len(args) != 2 {
 			return fmt.Errorf("usage: archstate snapshot rm <id>")
 		}
-		if err := removeSnapshot(repo, args[1]); err != nil {
+		if err := r.withRepoLock(repo, "snapshot rm", func() error {
+			return removeSnapshot(repo, args[1])
+		}); err != nil {
 			return err
 		}
 		fmt.Fprintf(r.Stdout, "removed snapshot %s\n", args[1])
@@ -191,7 +202,9 @@ func (r *Runner) nextSnapshotInfo(repo repoPaths, kind, name string) (snapshotIn
 	for i := 0; i < 1000; i++ {
 		id := baseID
 		if i > 0 {
-			id = fmt.Sprintf("%s-%d", baseID, i+1)
+			// '+' is rejected by validateSnapshotName, so a collision counter
+			// can never be mistaken for part of a manual snapshot's name.
+			id = fmt.Sprintf("%s+%d", baseID, i+1)
 		}
 		if !pathExists(repo.snapshotPath(id)) {
 			return parseSnapshotID(id)
@@ -207,14 +220,17 @@ func (r *Runner) currentTime() time.Time {
 	return time.Now()
 }
 
+// snapshotStateNames lists every component of repo state a snapshot captures.
+// It must stay in sync with the files/dirs init creates; the constants are the
+// single source of truth and TestSnapshotStateNamesCoversRepoState guards it.
 func snapshotStateNames() []string {
 	return []string{
-		"pacman.conf",
-		"aur.conf",
-		"config.conf",
-		"home.conf",
-		"config",
-		"home",
+		pacmanConfFile,
+		aurConfFile,
+		configConfFile,
+		homeConfFile,
+		configDirName,
+		homeDirName,
 	}
 }
 
@@ -409,6 +425,15 @@ func parseSnapshotID(id string) (snapshotInfo, error) {
 	}
 	name := ""
 	suffix := id[stampStart+len(snapshotTimeLayout):]
+	// Strip an optional collision counter "+N" (decimal). '+' is not a legal
+	// snapshot-name character, so the counter is unambiguous for both kinds and
+	// a manual snapshot keeps its original name after a same-second collision.
+	if i := strings.IndexByte(suffix, '+'); i >= 0 {
+		if !isDecimal(suffix[i+1:]) {
+			return snapshotInfo{}, fmt.Errorf("invalid snapshot id %q", id)
+		}
+		suffix = suffix[:i]
+	}
 	if nameRequired {
 		if !strings.HasPrefix(suffix, "-") || len(suffix) == 1 {
 			return snapshotInfo{}, fmt.Errorf("invalid snapshot id %q", id)
@@ -418,14 +443,7 @@ func parseSnapshotID(id string) (snapshotInfo, error) {
 			return snapshotInfo{}, fmt.Errorf("invalid snapshot id %q", id)
 		}
 	} else if suffix != "" {
-		if !strings.HasPrefix(suffix, "-") || len(suffix) == 1 {
-			return snapshotInfo{}, fmt.Errorf("invalid snapshot id %q", id)
-		}
-		for _, r := range suffix[1:] {
-			if r < '0' || r > '9' {
-				return snapshotInfo{}, fmt.Errorf("invalid snapshot id %q", id)
-			}
-		}
+		return snapshotInfo{}, fmt.Errorf("invalid snapshot id %q", id)
 	}
 
 	return snapshotInfo{
@@ -466,4 +484,16 @@ func validateSnapshotName(name string) error {
 		}
 	}
 	return nil
+}
+
+func isDecimal(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }

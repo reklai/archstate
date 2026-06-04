@@ -75,14 +75,14 @@ func (r *Runner) runDoctor() error {
 		return nil
 	}
 
-	pacmanEntries, pacmanErr := readStateFileStrict(repo.pacmanPath(), validatePackageEntry)
-	reportStateFile(report, "pacman.conf", pacmanErr, "fix: archstate sync", "restore: archstate snapshot restore <id>")
-	aurEntries, aurErr := readStateFileStrict(repo.aurPath(), validatePackageEntry)
-	reportStateFile(report, "aur.conf", aurErr, "fix: archstate sync", "restore: archstate snapshot restore <id>")
-	configEntries, configErr := readStateFileStrict(repo.configPath(), validateManagedEntry)
-	reportStateFile(report, "config.conf", configErr, "inspect: archstate help config", "restore: archstate snapshot restore <id>")
+	pacmanEntries, pacmanErr := readStateFileStrictOptional(repo.pacmanPath(), validatePackageEntry)
+	reportStateFile(report, pacmanConfFile, pacmanErr, "fix: archstate sync", "restore: archstate snapshot restore <id>")
+	aurEntries, aurErr := readStateFileStrictOptional(repo.aurPath(), validatePackageEntry)
+	reportStateFile(report, aurConfFile, aurErr, "fix: archstate sync", "restore: archstate snapshot restore <id>")
+	configEntries, configErr := readStateFileStrictOptional(repo.configPath(), validateManagedEntry)
+	reportStateFile(report, configConfFile, configErr, "inspect: archstate help config", "restore: archstate snapshot restore <id>")
 	homeEntries, homeErr := readStateFileStrictOptional(repo.homePath(), validateManagedEntry)
-	reportStateFile(report, "home.conf", homeErr, "inspect: archstate help home", "restore: archstate snapshot restore <id>")
+	reportStateFile(report, homeConfFile, homeErr, "inspect: archstate help home", "restore: archstate snapshot restore <id>")
 
 	if aurErr == nil && len(aurEntries) > 0 {
 		if helper, helperPath, _, err := r.resolveAURHelper(""); err != nil {
@@ -203,7 +203,7 @@ func reportManagedDoctor(report *doctorReport, root managedRoot, entries map[str
 }
 
 func managedCommand(root managedRoot) string {
-	if root.RepoRoot == "home" {
+	if root.RepoRoot == homeDirName {
 		return "home"
 	}
 	return "config"

@@ -416,22 +416,27 @@ func (r *Runner) runSync() error {
 		return nil
 	}
 
-	allNames := append(append([]string{}, native...), foreign...)
-	descriptions, err := r.queryPackageDescriptions(allNames)
-	if err != nil {
-		return err
-	}
+	var nativeState, foreignState map[string]string
+	if err := r.withRepoLock(repo, "sync", func() error {
+		allNames := append(append([]string{}, native...), foreign...)
+		descriptions, err := r.queryPackageDescriptions(allNames)
+		if err != nil {
+			return err
+		}
 
-	nativeState := buildPackageState(native, existingNative, descriptions)
-	foreignState := buildPackageState(foreign, existingForeign, descriptions)
-
-	if _, err := r.createAutoSnapshot(repo); err != nil {
-		return err
-	}
-	if err := writeStateFile(repo.pacmanPath(), nativeState); err != nil {
-		return err
-	}
-	if err := writeStateFile(repo.aurPath(), foreignState); err != nil {
+		nativeState = buildPackageState(native, existingNative, descriptions)
+		foreignState = buildPackageState(foreign, existingForeign, descriptions)
+		if _, err := r.createAutoSnapshot(repo); err != nil {
+			return err
+		}
+		if err := writeStateFile(repo.pacmanPath(), nativeState); err != nil {
+			return err
+		}
+		if err := writeStateFile(repo.aurPath(), foreignState); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 	fmt.Fprintf(r.Stdout, "synced %d native and %d AUR packages\n", len(nativeState), len(foreignState))
@@ -466,15 +471,26 @@ func (r *Runner) runBootstrap(args []string) error {
 	if err != nil {
 		return err
 	}
-	plan, err := r.buildBootstrapPlan(repo, opts)
-	if err != nil {
-		return err
-	}
 	if opts.Preview {
+		plan, err := r.buildBootstrapPlan(repo, opts)
+		if err != nil {
+			return err
+		}
 		r.printBootstrapPlan(plan)
 		return nil
 	}
-	return r.applyBootstrapPlan(plan, opts)
+	return r.withRepoLock(repo, "bootstrap", func() error {
+		plan, err := r.buildBootstrapPlan(repo, opts)
+		if err != nil {
+			return err
+		}
+		if plan.hasRiskyManagedActions() {
+			if err := r.requireCleanGitRepo(repo, "bootstrap"); err != nil {
+				return err
+			}
+		}
+		return r.applyBootstrapPlan(plan, opts)
+	})
 }
 
 func (r *Runner) runConfig(args []string) error {

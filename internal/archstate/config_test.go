@@ -35,6 +35,44 @@ func TestStrictParserRejectsUnsupportedComments(t *testing.T) {
 	}
 }
 
+func TestStrictParserRejectsMalformedLinesAndDuplicateKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "malformed",
+			body: "bad line\n",
+			want: "expected key=value",
+		},
+		{
+			name: "spaced",
+			body: "pkg =description\n",
+			want: "expected key=value",
+		},
+		{
+			name: "duplicate",
+			body: "pkg=one\npkg=two\n",
+			want: `duplicate key "pkg"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "pacman.conf")
+			writeFile(t, path, generatedHeader+tt.body)
+
+			_, err := readStateFileStrict(path, validatePackageEntry)
+			if err == nil {
+				t.Fatal("expected strict parser error")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("expected %q, got %v", tt.want, err)
+			}
+		})
+	}
+}
+
 func TestSyncPackageParserSilentlyKeepsOnlyValidEntries(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pacman.conf")
 	writeFile(t, path, generatedHeader+`

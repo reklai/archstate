@@ -88,6 +88,163 @@ func TestConfigRemoveRestoresLocalConfigAndRemovesRepoData(t *testing.T) {
 	}
 }
 
+func TestConfigAddRejectsForeignLocalSymlink(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	foreignTarget := filepath.Join(env.root, "elsewhere", "nvim")
+	if err := os.MkdirAll(foreignTarget, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(env.home, ".config", "nvim")
+	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(foreignTarget, local); err != nil {
+		t.Fatal(err)
+	}
+
+	err := env.run("config", "add", "nvim")
+	if err == nil {
+		t.Fatal("expected foreign symlink adoption to fail")
+	}
+	if !strings.Contains(err.Error(), "cannot adopt symlink") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	target, err := os.Readlink(local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target != foreignTarget {
+		t.Fatalf("foreign symlink was changed: %s", target)
+	}
+	if _, statErr := os.Lstat(filepath.Join(env.repo, "config", "nvim")); !os.IsNotExist(statErr) {
+		t.Fatalf("repo target should not have been created")
+	}
+}
+
+func TestConfigAddRejectsRepoTargetSymlink(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	trackedTarget := filepath.Join(env.root, "tracked-target")
+	writeFile(t, trackedTarget, "target\n")
+	repoTarget := filepath.Join(env.repo, "config", "nvim")
+	if err := os.Symlink(trackedTarget, repoTarget); err != nil {
+		t.Fatal(err)
+	}
+
+	err := env.run("config", "add", "nvim")
+	if err == nil {
+		t.Fatal("expected repo symlink target to fail")
+	}
+	if !strings.Contains(err.Error(), "repo target must not be a symlink") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestConfigRemoveRejectsRepoTargetSymlinkBeforeSnapshot(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	env.r.Now = fixedTime(2026, 6, 4, 19, 0, 0)
+	trackedTarget := filepath.Join(env.root, "tracked-target")
+	writeFile(t, trackedTarget, "target\n")
+	repoTarget := filepath.Join(env.repo, "config", "nvim")
+	if err := os.Symlink(trackedTarget, repoTarget); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader+"nvim=nvim\n")
+
+	err := env.run("config", "rm", "nvim")
+	if err == nil {
+		t.Fatal("expected repo symlink target to fail")
+	}
+	if !strings.Contains(err.Error(), "repo target must not be a symlink") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(env.repo, ".snapshots", "auto-2026-06-04_19-00-00")); !os.IsNotExist(statErr) {
+		t.Fatalf("remove should fail before creating an auto snapshot")
+	}
+}
+
+func TestStatusReportsBrokenManagedSymlink(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	writeFakePacman(t, env.bin, `
+case "$1" in
+  -Qqen)
+    printf ''
+    ;;
+  -Qqem)
+    printf ''
+    ;;
+  *)
+    echo "unexpected pacman args: $*" >&2
+    exit 2
+    ;;
+esac
+`)
+	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader+"nvim=nvim\n")
+	repoTarget := filepath.Join(env.repo, "config", "nvim")
+	local := filepath.Join(env.home, ".config", "nvim")
+	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(repoTarget, local); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := env.run("status"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(env.stdout.String(), "error nvim: repo target is missing") {
+		t.Fatalf("status did not report broken managed symlink:\n%s", env.stdout.String())
+	}
+}
+
+func TestConfigAddRollsBackAdoptionWhenStateWriteFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can write through directory permissions used by this test")
+	}
+	env := newTestEnv(t)
+	env.initRepo(t)
+	if err := os.MkdirAll(filepath.Join(env.repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeExecutable(t, filepath.Join(env.bin, "git"), `
+if [ "$1" = -C ] && [ "$3" = status ] && [ "$4" = --porcelain ]; then
+  printf ''
+  exit 0
+fi
+echo "unexpected git args: $*" >&2
+exit 2
+`)
+	local := filepath.Join(env.home, ".config", "nvim")
+	writeFile(t, filepath.Join(local, "init.lua"), "local config\n")
+	if err := os.Chmod(env.repo, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(env.repo, 0o755)
+	})
+
+	err := env.run("config", "add", "nvim")
+	if err == nil {
+		t.Fatal("expected state write to fail")
+	}
+	info, statErr := os.Lstat(local)
+	if statErr != nil {
+		t.Fatal(statErr)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("local config should have been restored as a real directory")
+	}
+	if got := readFile(t, filepath.Join(local, "init.lua")); got != "local config\n" {
+		t.Fatalf("local config was not restored: %q", got)
+	}
+	if _, statErr := os.Lstat(filepath.Join(env.repo, "config", "nvim")); !os.IsNotExist(statErr) {
+		t.Fatalf("repo target should have been rolled back")
+	}
+}
+
 func TestDoctorReportsMissingManagedSymlink(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
