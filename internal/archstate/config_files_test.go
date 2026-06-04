@@ -305,7 +305,7 @@ esac
 		"ERROR config nvim: managed symlink is missing",
 		"local: " + filepath.Join(env.home, ".config", "nvim"),
 		"tracked: " + repoTarget,
-		"preview: archstate bootstrap --preview",
+		"dry-run: archstate bootstrap --dry-run",
 		"fix: archstate bootstrap",
 	} {
 		if !strings.Contains(out, want) {

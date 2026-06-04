@@ -123,7 +123,7 @@ func TestHomeRemoveRestoresLocalFileAndRemovesRepoData(t *testing.T) {
 	}
 }
 
-func TestBootstrapPreviewIncludesHomeFiles(t *testing.T) {
+func TestBootstrapDryRunIncludesHomeFiles(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -144,12 +144,12 @@ esac
 	repoTarget := filepath.Join(env.repo, "home", ".zshrc")
 	writeFile(t, repoTarget, "export EDITOR=nvim\n")
 
-	if err := env.run("bootstrap", "--preview"); err != nil {
+	if err := env.run("bootstrap", "--dry-run"); err != nil {
 		t.Fatal(err)
 	}
 	want := "link " + filepath.Join(env.home, ".zshrc") + " -> " + repoTarget
 	if !strings.Contains(env.stdout.String(), "Home file plan:") || !strings.Contains(env.stdout.String(), want) {
-		t.Fatalf("preview did not include home file link %q:\n%s", want, env.stdout.String())
+		t.Fatalf("dry-run did not include home file link %q:\n%s", want, env.stdout.String())
 	}
 }
 

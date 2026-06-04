@@ -22,7 +22,7 @@ func TestHelpAliasesPrintCanonicalHelp(t *testing.T) {
 		"  packages   Fuzzy-select explicit packages to remove.",
 		"  snapshot   Save, list, restore, or remove repo-state snapshots.",
 		"  service    Manage the optional systemd user sync timer.",
-		"archstate bootstrap --preview",
+		"archstate bootstrap --dry-run",
 		"Command help:\n  archstate help <command>",
 		"archstate <command> --help",
 		"Examples:",
@@ -128,7 +128,7 @@ func TestBootstrapFlagHelpPrintsBootstrapTopic(t *testing.T) {
 		}
 		got := env.stdout.String()
 		for _, want := range []string{
-			"Usage:\n  archstate bootstrap --preview",
+			"Usage:\n  archstate bootstrap --dry-run",
 			"--aur-helper paru|yay",
 			"--adopt",
 			"--overwrite",

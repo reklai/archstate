@@ -123,10 +123,10 @@ git clone <your-archstate-repo> ~/.config/archstate
 cd ~/.config/archstate
 ```
 
-Preview first:
+Dry-run first:
 
 ```bash
-archstate bootstrap --preview
+archstate bootstrap --dry-run
 ```
 
 Apply:
@@ -153,10 +153,10 @@ archstate bootstrap --aur-helper yay
 
 Naked bootstrap fails on unmanaged config/home conflicts before package installs. That keeps package installs and file conflict resolution from being mixed together silently.
 
-Preview conflicts:
+Dry-run to see conflicts:
 
 ```bash
-archstate bootstrap --preview
+archstate bootstrap --dry-run
 ```
 
 Choose the local copy:
@@ -204,7 +204,7 @@ ERROR AUR helper: paru/yay not found
   fix: archstate bootstrap --aur-helper yay
 
 ERROR config nvim: unmanaged local entry exists
-  preview: archstate bootstrap --preview
+  dry-run: archstate bootstrap --dry-run
   fix keep local: archstate bootstrap --adopt
   fix restore tracked: archstate bootstrap --overwrite
 

@@ -8,7 +8,7 @@ import (
 )
 
 type BootstrapOptions struct {
-	Preview   bool
+	DryRun    bool
 	Adopt     bool
 	Overwrite bool
 	AURHelper string

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestBootstrapPreviewReportsPackagesConfigsAndAURHelper(t *testing.T) {
+func TestBootstrapDryRunReportsPackagesConfigsAndAURHelper(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -29,7 +29,7 @@ esac
 		t.Fatal(err)
 	}
 
-	if err := env.run("bootstrap", "--preview"); err != nil {
+	if err := env.run("bootstrap", "--dry-run"); err != nil {
 		t.Fatal(err)
 	}
 	out := env.stdout.String()
@@ -63,7 +63,7 @@ esac
 	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader+"some-aur=desc\n")
 	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader)
 
-	if err := env.run("bootstrap", "--preview"); err != nil {
+	if err := env.run("bootstrap", "--dry-run"); err != nil {
 		t.Fatal(err)
 	}
 	out := env.stdout.String()
@@ -230,7 +230,7 @@ HELPER
 	}
 }
 
-func TestBootstrapAURHelperFlagPreviewShowsHelperBootstrap(t *testing.T) {
+func TestBootstrapAURHelperFlagDryRunShowsHelperBootstrap(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -248,7 +248,7 @@ esac
 	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader+"some-aur=desc\n")
 	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader)
 
-	if err := env.run("bootstrap", "--preview", "--aur-helper", "yay"); err != nil {
+	if err := env.run("bootstrap", "--dry-run", "--aur-helper", "yay"); err != nil {
 		t.Fatal(err)
 	}
 	out := env.stdout.String()
@@ -562,7 +562,7 @@ esac
 	}
 }
 
-func TestBootstrapPreviewReflectsConflictPolicy(t *testing.T) {
+func TestBootstrapDryRunReflectsConflictPolicy(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -586,21 +586,21 @@ esac
 	local := filepath.Join(env.home, ".config", "nvim")
 	writeFile(t, filepath.Join(local, "init.lua"), "local config\n")
 
-	if err := env.run("bootstrap", "--preview"); err != nil {
+	if err := env.run("bootstrap", "--dry-run"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(env.stdout.String(), "conflict "+local+": use --adopt to save the current config into Archstate, or --overwrite to restore the tracked copy") {
 		t.Fatalf("preview did not show conflict policy:\n%s", env.stdout.String())
 	}
 
-	if err := env.run("bootstrap", "--preview", "--adopt"); err != nil {
+	if err := env.run("bootstrap", "--dry-run", "--adopt"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(env.stdout.String(), "adopt "+local+" -> "+repoTarget) {
 		t.Fatalf("preview did not show adopt action:\n%s", env.stdout.String())
 	}
 
-	if err := env.run("bootstrap", "--preview", "--overwrite"); err != nil {
+	if err := env.run("bootstrap", "--dry-run", "--overwrite"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(env.stdout.String(), "overwrite "+repoTarget+" -> "+local) {

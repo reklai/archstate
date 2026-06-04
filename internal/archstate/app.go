@@ -162,7 +162,7 @@ Common workflow:
   archstate home add .zshrc
   archstate snapshot save baseline
   archstate status
-  archstate bootstrap --preview
+  archstate bootstrap --dry-run
   archstate bootstrap
 
 Commands:
@@ -185,7 +185,7 @@ Command help:
 Examples:
   archstate config add nvim
   archstate snapshot list --manual
-  archstate bootstrap --preview`)
+  archstate bootstrap --dry-run`)
 }
 
 func isHelpArg(arg string) bool {
@@ -334,13 +334,13 @@ Notes:
   Restore creates an automatic snapshot first, so the current repo state can be recovered.`)
 	case "bootstrap":
 		fmt.Fprintln(r.Stdout, `Usage:
-  archstate bootstrap --preview
+  archstate bootstrap --dry-run
   archstate bootstrap [--adopt|--overwrite] [--aur-helper paru|yay]
 
 Install missing packages and create managed config/home symlinks.
 
 Options:
-  --preview              Show planned installs, symlinks, conflicts, adoptions, or overwrites.
+  --dry-run              Show planned installs, symlinks, conflicts, adoptions, or overwrites.
   --aur-helper paru|yay  Use the selected AUR helper. If missing, bootstrap the matching helper.
   --adopt                Save unmanaged local config/home entries into Archstate, then symlink.
   --overwrite            Restore tracked Archstate entries over unmanaged local files.
@@ -351,7 +351,7 @@ Conflict behavior:
   --overwrite fails if the tracked copy is missing.
 
 Examples:
-  archstate bootstrap --preview
+  archstate bootstrap --dry-run
   archstate bootstrap --aur-helper paru
   archstate bootstrap --adopt
   archstate bootstrap --overwrite`)
@@ -641,7 +641,7 @@ func (r *Runner) runBootstrap(args []string) error {
 	fs := flag.NewFlagSet("bootstrap", flag.ContinueOnError)
 	fs.SetOutput(r.Stderr)
 	var opts BootstrapOptions
-	fs.BoolVar(&opts.Preview, "preview", false, "show planned changes without applying them")
+	fs.BoolVar(&opts.DryRun, "dry-run", false, "show planned changes without applying them")
 	fs.BoolVar(&opts.Adopt, "adopt", false, "save existing .config conflicts into Archstate")
 	fs.BoolVar(&opts.Overwrite, "overwrite", false, "restore tracked Archstate config over .config conflicts")
 	fs.StringVar(&opts.AURHelper, "aur-helper", "", "choose AUR helper to use or bootstrap: paru or yay")
@@ -649,7 +649,7 @@ func (r *Runner) runBootstrap(args []string) error {
 		return err
 	}
 	if fs.NArg() != 0 {
-		return fmt.Errorf("usage: archstate bootstrap [--preview] [--adopt|--overwrite] [--aur-helper paru|yay]")
+		return fmt.Errorf("usage: archstate bootstrap [--dry-run] [--adopt|--overwrite] [--aur-helper paru|yay]")
 	}
 	if opts.Adopt && opts.Overwrite {
 		return errors.New("--adopt and --overwrite are mutually exclusive")
@@ -662,7 +662,7 @@ func (r *Runner) runBootstrap(args []string) error {
 	if err != nil {
 		return err
 	}
-	if opts.Preview {
+	if opts.DryRun {
 		plan, err := r.buildBootstrapPlan(repo, opts)
 		if err != nil {
 			return err

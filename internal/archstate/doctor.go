@@ -148,7 +148,7 @@ func (r *Runner) reportPackageDrift(report *doctorReport, nativeState, aurState 
 	if missing > 0 {
 		report.WARN("package drift", fmt.Sprintf("%d tracked packages are missing", missing),
 			"inspect: archstate status",
-			"preview: archstate bootstrap --preview",
+			"dry-run: archstate bootstrap --dry-run",
 			"fix: archstate bootstrap",
 		)
 	}
@@ -175,14 +175,14 @@ func reportManagedDoctor(report *doctorReport, root managedRoot, entries map[str
 			report.ERRORMessage(label, "managed symlink is missing",
 				"local: "+action.LocalPath,
 				"tracked: "+action.RepoPath,
-				"preview: archstate bootstrap --preview",
+				"dry-run: archstate bootstrap --dry-run",
 				"fix: archstate bootstrap",
 			)
 		case ManagedConflictAction:
 			hints := []string{
 				"local: " + action.LocalPath,
 				"tracked: " + action.RepoPath,
-				"preview: archstate bootstrap --preview",
+				"dry-run: archstate bootstrap --dry-run",
 				"fix keep local: archstate bootstrap --adopt",
 			}
 			if pathExists(action.RepoPath) {
