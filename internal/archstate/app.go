@@ -279,38 +279,41 @@ Reports:
   managed config and home entries as ok, missing, conflict, or error`)
 	case "config":
 		fmt.Fprintln(r.Stdout, `Usage:
-  archstate config add <name>
+  archstate config add <name>...
   archstate config list
-  archstate config rm <name>
+  archstate config preview
+  archstate config rm <name>...
 
-Manage direct children of ~/.config.
+Manage direct children of ~/.config. add and rm accept multiple names.
 
 Commands:
   add <name>  Save ~/.config/<name> into Archstate config/ and replace it with a symlink.
   list        Show currently tracked config entries.
+  preview     Show ~/.config entries and which ones can be added.
   rm <name>   Stop managing ~/.config/<name>, restore it locally, and remove the saved copy.
 
 Examples:
-  archstate config add nvim
-  archstate config list
+  archstate config add nvim kitty ghostty
+  archstate config preview
   archstate config rm nvim`)
 	case "home":
 		fmt.Fprintln(r.Stdout, `Usage:
-  archstate home add <name>
+  archstate home add <name>...
   archstate home list
-  archstate home rm <name>
+  archstate home preview
+  archstate home rm <name>...
 
-Manage direct children of ~, such as shell/session files.
+Manage direct children of ~, such as shell/session files. add and rm accept multiple names.
 
 Commands:
   add <name>  Save ~/<name> into Archstate home/ and replace it with a symlink.
   list        Show currently tracked home entries.
+  preview     Show ~ dotfiles and which ones can be added.
   rm <name>   Stop managing ~/<name>, restore it locally, and remove the saved copy.
 
 Examples:
-  archstate home add .zshrc
-  archstate home list
-  archstate home add .profile
+  archstate home add .zshrc .profile
+  archstate home preview
   archstate home rm .zshrc`)
 	case "snapshot":
 		fmt.Fprintln(r.Stdout, `Usage:
@@ -336,11 +339,13 @@ Notes:
 		fmt.Fprintln(r.Stdout, `Usage:
   archstate bootstrap --dry-run
   archstate bootstrap [--adopt|--overwrite] [--aur-helper paru|yay]
+  archstate bootstrap --dotfiles [--adopt|--overwrite]
 
 Install missing packages and create managed config/home symlinks.
 
 Options:
   --dry-run              Show planned installs, symlinks, conflicts, adoptions, or overwrites.
+  --dotfiles             Apply only config/home symlinks; skip packages (needs no sudo or pacman).
   --aur-helper paru|yay  Use the selected AUR helper. If missing, bootstrap the matching helper.
   --adopt                Save unmanaged local config/home entries into Archstate, then symlink.
   --overwrite            Restore tracked Archstate entries over unmanaged local files.
@@ -352,6 +357,7 @@ Conflict behavior:
 
 Examples:
   archstate bootstrap --dry-run
+  archstate bootstrap --dotfiles --overwrite
   archstate bootstrap --aur-helper paru
   archstate bootstrap --adopt
   archstate bootstrap --overwrite`)
@@ -642,6 +648,7 @@ func (r *Runner) runBootstrap(args []string) error {
 	fs.SetOutput(r.Stderr)
 	var opts BootstrapOptions
 	fs.BoolVar(&opts.DryRun, "dry-run", false, "show planned changes without applying them")
+	fs.BoolVar(&opts.DotFiles, "dotfiles", false, "apply only config/home symlinks; skip packages (no sudo)")
 	fs.BoolVar(&opts.Adopt, "adopt", false, "save existing .config conflicts into Archstate")
 	fs.BoolVar(&opts.Overwrite, "overwrite", false, "restore tracked Archstate config over .config conflicts")
 	fs.StringVar(&opts.AURHelper, "aur-helper", "", "choose AUR helper to use or bootstrap: paru or yay")
@@ -649,10 +656,13 @@ func (r *Runner) runBootstrap(args []string) error {
 		return err
 	}
 	if fs.NArg() != 0 {
-		return fmt.Errorf("usage: archstate bootstrap [--dry-run] [--adopt|--overwrite] [--aur-helper paru|yay]")
+		return fmt.Errorf("usage: archstate bootstrap [--dry-run] [--dotfiles] [--adopt|--overwrite] [--aur-helper paru|yay]")
 	}
 	if opts.Adopt && opts.Overwrite {
 		return errors.New("--adopt and --overwrite are mutually exclusive")
+	}
+	if opts.DotFiles && opts.AURHelper != "" {
+		return errors.New("--dotfiles skips packages, so --aur-helper has no effect")
 	}
 	if opts.AURHelper != "" && !isSupportedAURHelper(opts.AURHelper) {
 		return fmt.Errorf("unsupported AUR helper %q; choose paru or yay", opts.AURHelper)
@@ -667,7 +677,7 @@ func (r *Runner) runBootstrap(args []string) error {
 		if err != nil {
 			return err
 		}
-		r.printBootstrapPlan(plan)
+		r.printBootstrapPlan(plan, opts)
 		return nil
 	}
 	return r.withRepoLock(repo, "bootstrap", func() error {
@@ -689,7 +699,7 @@ func (r *Runner) runConfig(args []string) error {
 		return r.printCommandHelp("config")
 	}
 	if len(args) < 1 {
-		return fmt.Errorf("usage: archstate config add <name>\n   or: archstate config list\n   or: archstate config rm <name>")
+		return fmt.Errorf("usage: archstate config add <name>\n   or: archstate config list\n   or: archstate config preview\n   or: archstate config rm <name>")
 	}
 	repo, err := r.discoverExistingRepo()
 	if err != nil {
@@ -697,20 +707,25 @@ func (r *Runner) runConfig(args []string) error {
 	}
 	switch args[0] {
 	case "add":
-		if len(args) != 2 {
-			return fmt.Errorf("usage: archstate config add <name>")
+		if len(args) < 2 {
+			return fmt.Errorf("usage: archstate config add <name>...")
 		}
-		return r.runConfigAdd(repo, args[1])
+		return r.runConfigAdd(repo, args[1:])
 	case "list":
 		if len(args) != 1 {
 			return fmt.Errorf("usage: archstate config list")
 		}
 		return r.runConfigList(repo)
-	case "rm":
-		if len(args) != 2 {
-			return fmt.Errorf("usage: archstate config rm <name>")
+	case "preview":
+		if len(args) != 1 {
+			return fmt.Errorf("usage: archstate config preview")
 		}
-		return r.runConfigRemove(repo, args[1])
+		return r.runConfigPreview(repo)
+	case "rm":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: archstate config rm <name>...")
+		}
+		return r.runConfigRemove(repo, args[1:])
 	default:
 		return fmt.Errorf("unknown config command %q", args[0])
 	}
@@ -721,7 +736,7 @@ func (r *Runner) runHome(args []string) error {
 		return r.printCommandHelp("home")
 	}
 	if len(args) < 1 {
-		return fmt.Errorf("usage: archstate home add <name>\n   or: archstate home list\n   or: archstate home rm <name>")
+		return fmt.Errorf("usage: archstate home add <name>\n   or: archstate home list\n   or: archstate home preview\n   or: archstate home rm <name>")
 	}
 	repo, err := r.discoverExistingRepo()
 	if err != nil {
@@ -729,20 +744,25 @@ func (r *Runner) runHome(args []string) error {
 	}
 	switch args[0] {
 	case "add":
-		if len(args) != 2 {
-			return fmt.Errorf("usage: archstate home add <name>")
+		if len(args) < 2 {
+			return fmt.Errorf("usage: archstate home add <name>...")
 		}
-		return r.runHomeAdd(repo, args[1])
+		return r.runHomeAdd(repo, args[1:])
 	case "list":
 		if len(args) != 1 {
 			return fmt.Errorf("usage: archstate home list")
 		}
 		return r.runHomeList(repo)
-	case "rm":
-		if len(args) != 2 {
-			return fmt.Errorf("usage: archstate home rm <name>")
+	case "preview":
+		if len(args) != 1 {
+			return fmt.Errorf("usage: archstate home preview")
 		}
-		return r.runHomeRemove(repo, args[1])
+		return r.runHomePreview(repo)
+	case "rm":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: archstate home rm <name>...")
+		}
+		return r.runHomeRemove(repo, args[1:])
 	default:
 		return fmt.Errorf("unknown home command %q", args[0])
 	}

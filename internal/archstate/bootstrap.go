@@ -9,6 +9,7 @@ import (
 
 type BootstrapOptions struct {
 	DryRun    bool
+	DotFiles  bool
 	Adopt     bool
 	Overwrite bool
 	AURHelper string
@@ -29,14 +30,6 @@ type BootstrapPlan struct {
 }
 
 func (r *Runner) buildBootstrapPlan(repo repoPaths, opts BootstrapOptions) (BootstrapPlan, error) {
-	nativeState, err := readStateFileStrictOptional(repo.pacmanPath(), validatePackageEntry)
-	if err != nil {
-		return BootstrapPlan{}, err
-	}
-	aurState, err := readStateFileStrictOptional(repo.aurPath(), validatePackageEntry)
-	if err != nil {
-		return BootstrapPlan{}, err
-	}
 	configState, err := readStateFileStrictOptional(repo.configPath(), validateManagedEntry)
 	if err != nil {
 		return BootstrapPlan{}, err
@@ -45,29 +38,43 @@ func (r *Runner) buildBootstrapPlan(repo repoPaths, opts BootstrapOptions) (Boot
 	if err != nil {
 		return BootstrapPlan{}, err
 	}
-	installed, err := r.queryPackageNames("pacman", "-Qq")
-	if err != nil {
-		return BootstrapPlan{}, err
-	}
 
 	plan := BootstrapPlan{
 		Repo:          repo,
-		NativeMissing: missingPackages(nativeState, installed),
-		AURMissing:    missingPackages(aurState, installed),
 		ConfigActions: planConfigs(repo, configState, opts),
 		HomeActions:   planHomeFiles(repo, homeState, opts),
 	}
-	if len(plan.AURMissing) > 0 {
-		helper, helperPath, needsBootstrap, err := r.resolveAURHelper(opts.AURHelper)
+
+	// --dotfiles is the user-space-only path: it never reads package files,
+	// queries pacman, or resolves an AUR helper, so it needs no sudo or pacman.
+	if !opts.DotFiles {
+		nativeState, err := readStateFileStrictOptional(repo.pacmanPath(), validatePackageEntry)
 		if err != nil {
-			plan.AURHelperError = err
-		} else {
-			plan.AURHelper = helper
-			plan.AURHelperPath = helperPath
-			plan.AURHelperPackage = aurHelperPackage(helper)
-			plan.AURHelperBootstrap = needsBootstrap
+			return BootstrapPlan{}, err
+		}
+		aurState, err := readStateFileStrictOptional(repo.aurPath(), validatePackageEntry)
+		if err != nil {
+			return BootstrapPlan{}, err
+		}
+		installed, err := r.queryPackageNames("pacman", "-Qq")
+		if err != nil {
+			return BootstrapPlan{}, err
+		}
+		plan.NativeMissing = missingPackages(nativeState, installed)
+		plan.AURMissing = missingPackages(aurState, installed)
+		if len(plan.AURMissing) > 0 {
+			helper, helperPath, needsBootstrap, err := r.resolveAURHelper(opts.AURHelper)
+			if err != nil {
+				plan.AURHelperError = err
+			} else {
+				plan.AURHelper = helper
+				plan.AURHelperPath = helperPath
+				plan.AURHelperPackage = aurHelperPackage(helper)
+				plan.AURHelperBootstrap = needsBootstrap
+			}
 		}
 	}
+
 	for _, action := range plan.allManagedActions() {
 		if action.Kind == ManagedErrorAction {
 			plan.ManagedErrors = append(plan.ManagedErrors, action.Err)
@@ -76,17 +83,21 @@ func (r *Runner) buildBootstrapPlan(repo repoPaths, opts BootstrapOptions) (Boot
 	return plan, nil
 }
 
-func (r *Runner) printBootstrapPlan(plan BootstrapPlan) {
+func (r *Runner) printBootstrapPlan(plan BootstrapPlan, opts BootstrapOptions) {
 	fmt.Fprintln(r.Stdout, "Package plan:")
-	printPackageList(r.Stdout, "native install", plan.NativeMissing)
-	printPackageList(r.Stdout, "AUR install", plan.AURMissing)
-	if len(plan.AURMissing) > 0 {
-		if plan.AURHelperError != nil {
-			fmt.Fprintf(r.Stdout, "  AUR helper error: %v\n", plan.AURHelperError)
-		} else {
-			fmt.Fprintf(r.Stdout, "  AUR helper: %s\n", plan.AURHelper)
-			if plan.AURHelperBootstrap {
-				fmt.Fprintf(r.Stdout, "  AUR helper bootstrap: %s\n", plan.AURHelperPackage)
+	if opts.DotFiles {
+		fmt.Fprintln(r.Stdout, "  skipped (--dotfiles)")
+	} else {
+		printPackageList(r.Stdout, "native install", plan.NativeMissing)
+		printPackageList(r.Stdout, "AUR install", plan.AURMissing)
+		if len(plan.AURMissing) > 0 {
+			if plan.AURHelperError != nil {
+				fmt.Fprintf(r.Stdout, "  AUR helper error: %v\n", plan.AURHelperError)
+			} else {
+				fmt.Fprintf(r.Stdout, "  AUR helper: %s\n", plan.AURHelper)
+				if plan.AURHelperBootstrap {
+					fmt.Fprintf(r.Stdout, "  AUR helper bootstrap: %s\n", plan.AURHelperPackage)
+				}
 			}
 		}
 	}

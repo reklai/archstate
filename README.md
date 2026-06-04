@@ -1,6 +1,6 @@
 # Archstate
 
-Archstate attempts to reproduces your personal Arch-based machine setup from explicit packages plus selected config/home files.
+Archstate attempts to reproduce your personal Arch-based machine setup from explicit packages plus selected config/home files.
 
 ```text
 explicit pacman packages + explicit AUR packages + managed config/home symlinks
@@ -68,6 +68,13 @@ archstate config list
 archstate home list
 ```
 
+See what is available to track in those areas (tracked vs. addable vs. not-adoptable):
+
+```bash
+archstate config preview
+archstate home preview
+```
+
 Save a baseline:
 
 ```bash
@@ -133,6 +140,13 @@ Apply:
 
 ```bash
 archstate bootstrap
+```
+
+To apply only your config/home symlinks and skip packages entirely — no `sudo`, no `pacman`, works on any machine — use `--dotfiles`:
+
+```bash
+archstate bootstrap --dotfiles
+archstate bootstrap --dotfiles --overwrite   # let tracked copies win over stock defaults
 ```
 
 If AUR packages are tracked and no helper is installed, choose one explicitly:
@@ -321,10 +335,15 @@ service    Manage the optional systemd user sync timer.
 Config entries are direct children of `~/.config`:
 
 ```bash
-archstate config add nvim
+archstate config add nvim kitty ghostty   # add accepts multiple names
 archstate config list
+archstate config preview
 archstate config rm nvim
 ```
+
+`add` and `rm` accept multiple names and are all-or-nothing: every name is validated first, so one un-addable entry aborts the batch before any file is moved.
+
+`config preview` scans `~/.config` and labels each direct child `tracked`, `add` (a real file/dir you can adopt), or `symlink` (replace with a real file first). `home preview` does the same for `~`, limited to dotfiles and skipping `.config`/`.cache`/`.local`.
 
 Mapping:
 
@@ -335,8 +354,9 @@ Mapping:
 Home entries are direct children of `~`:
 
 ```bash
-archstate home add .zshrc
+archstate home add .zshrc .profile   # add accepts multiple names
 archstate home list
+archstate home preview
 archstate home rm .zshrc
 ```
 

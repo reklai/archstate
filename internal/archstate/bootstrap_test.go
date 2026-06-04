@@ -695,3 +695,58 @@ esac
 		t.Fatalf("wrong symlink target: %s", target)
 	}
 }
+
+func TestBootstrapDotFilesAppliesSymlinksWithoutTouchingPacman(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	// pacman exits non-zero on any call, so a passing run proves --dotfiles
+	// never queried or installed packages (needs no pacman, no sudo).
+	writeFakePacman(t, env.bin, `echo "pacman must not run in --dotfiles mode: $*" >&2; exit 2`)
+	writeFile(t, filepath.Join(env.repo, "pacman.conf"), generatedHeader+"ripgrep=search tool\n")
+	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader+"nvim=nvim\n")
+	repoTarget := filepath.Join(env.repo, "config", "nvim")
+	writeFile(t, filepath.Join(repoTarget, "init.lua"), "tracked\n")
+
+	if err := env.run("bootstrap", "--dotfiles"); err != nil {
+		t.Fatal(err)
+	}
+	if !isCorrectSymlink(filepath.Join(env.home, ".config", "nvim"), repoTarget) {
+		t.Fatalf("--dotfiles did not create the managed config symlink")
+	}
+}
+
+func TestBootstrapDotFilesRejectsAURHelper(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+
+	err := env.run("bootstrap", "--dotfiles", "--aur-helper", "paru")
+	if err == nil {
+		t.Fatal("expected --dotfiles with --aur-helper to fail")
+	}
+	if !strings.Contains(err.Error(), "--dotfiles skips packages, so --aur-helper has no effect") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBootstrapDotFilesDryRunSkipsPackagePlan(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	writeFakePacman(t, env.bin, `echo "pacman must not run in --dotfiles dry-run: $*" >&2; exit 2`)
+	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader+"nvim=nvim\n")
+	repoTarget := filepath.Join(env.repo, "config", "nvim")
+	writeFile(t, filepath.Join(repoTarget, "init.lua"), "tracked\n")
+
+	if err := env.run("bootstrap", "--dotfiles", "--dry-run"); err != nil {
+		t.Fatal(err)
+	}
+	out := env.stdout.String()
+	if !strings.Contains(out, "skipped (--dotfiles)") {
+		t.Fatalf("dry-run did not note skipped packages:\n%s", out)
+	}
+	if !strings.Contains(out, "link "+filepath.Join(env.home, ".config", "nvim")) {
+		t.Fatalf("dry-run did not show the config symlink plan:\n%s", out)
+	}
+	if strings.Contains(out, "native install:") {
+		t.Fatalf("dry-run should not show a package plan in --dotfiles mode:\n%s", out)
+	}
+}
