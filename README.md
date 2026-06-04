@@ -1,6 +1,6 @@
 # Archstate
 
-Archstate reproduces an Arch-based machine from explicit packages plus selected config/home files.
+Archstate attempts to reproduces your personal Arch-based machine setup from explicit packages plus selected config/home files.
 
 ```text
 explicit pacman packages + explicit AUR packages + managed config/home symlinks
