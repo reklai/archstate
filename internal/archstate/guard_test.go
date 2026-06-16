@@ -46,7 +46,29 @@ esac
 	}
 }
 
-func TestDirtyGitRepoBlocksManagedRemoveBeforeSnapshot(t *testing.T) {
+func TestDirtyGitRepoDoesNotBlockManagedAdd(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	writeDirtyGit(t, env)
+	local := filepath.Join(env.home, ".config", "starship.toml")
+	writeFile(t, local, "local\n")
+
+	if err := env.run("config", "add", "starship.toml"); err != nil {
+		t.Fatal(err)
+	}
+	repoTarget := filepath.Join(env.repo, "config", "starship.toml")
+	if !isCorrectSymlink(local, repoTarget) {
+		t.Fatalf("config add should replace local entry with managed symlink")
+	}
+	if got := readFile(t, repoTarget); got != "local\n" {
+		t.Fatalf("adopted config = %q, want local contents", got)
+	}
+	if got := readFile(t, filepath.Join(env.repo, "config.conf")); !strings.Contains(got, "starship.toml=starship.toml\n") {
+		t.Fatalf("config.conf missing adopted entry:\n%s", got)
+	}
+}
+
+func TestDirtyGitRepoDoesNotBlockManagedRemove(t *testing.T) {
 	tests := []struct {
 		name       string
 		command    string
@@ -90,19 +112,28 @@ func TestDirtyGitRepoBlocksManagedRemoveBeforeSnapshot(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			err := env.run(tt.command, "rm", tt.removeName)
-			assertDirtyGitError(t, err, tt.command+" rm")
-			if _, statErr := os.Lstat(filepath.Join(env.repo, ".snapshots", "auto-2026-06-04_20-10-00")); !os.IsNotExist(statErr) {
-				t.Fatalf("%s rm should not snapshot dirty repo state", tt.command)
+			if err := env.run(tt.command, "rm", tt.removeName); err != nil {
+				t.Fatal(err)
 			}
-			if !isCorrectSymlink(tt.localPath, tt.repoTarget) {
-				t.Fatalf("%s rm changed managed symlink", tt.command)
+			snapshotRoot := filepath.Join(env.repo, ".snapshots", "auto-2026-06-04_20-10-00")
+			if got := readFile(t, filepath.Join(snapshotRoot, tt.conf)); !strings.Contains(got, tt.removeName+"="+tt.removeName+"\n") {
+				t.Fatalf("%s rm snapshot did not preserve pre-remove state:\n%s", tt.command, got)
+			}
+			if pathExists(tt.repoTarget) {
+				t.Fatalf("%s rm should remove repo target", tt.command)
+			}
+			info, statErr := os.Lstat(tt.localPath)
+			if statErr != nil {
+				t.Fatal(statErr)
+			}
+			if info.Mode()&os.ModeSymlink != 0 {
+				t.Fatalf("%s rm should restore local entry as a real file or directory", tt.command)
 			}
 		})
 	}
 }
 
-func TestDirtyGitRepoBlocksSnapshotRestoreBeforeUndoSnapshot(t *testing.T) {
+func TestDirtyGitRepoDoesNotBlockSnapshotRestore(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	env.r.Now = fixedTime(2026, 6, 4, 20, 20, 0)
@@ -114,17 +145,18 @@ func TestDirtyGitRepoBlocksSnapshotRestoreBeforeUndoSnapshot(t *testing.T) {
 	writeFile(t, filepath.Join(env.repo, "pacman.conf"), generatedHeader+"git=current\n")
 
 	env.r.Now = fixedTime(2026, 6, 4, 20, 21, 0)
-	err := env.run("snapshot", "restore", id)
-	assertDirtyGitError(t, err, "snapshot restore")
-	if got := readFile(t, filepath.Join(env.repo, "pacman.conf")); !strings.Contains(got, "git=current\n") {
-		t.Fatalf("restore should not rewrite dirty repo state:\n%s", got)
+	if err := env.run("snapshot", "restore", id); err != nil {
+		t.Fatal(err)
 	}
-	if _, statErr := os.Lstat(filepath.Join(env.repo, ".snapshots", "auto-2026-06-04_20-21-00")); !os.IsNotExist(statErr) {
-		t.Fatalf("restore should not create undo snapshot when repo is dirty")
+	if got := readFile(t, filepath.Join(env.repo, "pacman.conf")); strings.Contains(got, "git=current\n") {
+		t.Fatalf("restore did not replace dirty current state:\n%s", got)
+	}
+	if got := readFile(t, filepath.Join(env.repo, ".snapshots", "auto-2026-06-04_20-21-00", "pacman.conf")); !strings.Contains(got, "git=current\n") {
+		t.Fatalf("restore undo snapshot did not preserve dirty current state:\n%s", got)
 	}
 }
 
-func TestDirtyGitRepoBlocksBootstrapRiskyManagedActions(t *testing.T) {
+func TestDirtyGitRepoDoesNotBlockBootstrapRiskyManagedActions(t *testing.T) {
 	tests := []struct {
 		name string
 		flag string
@@ -157,17 +189,24 @@ esac
 			local := filepath.Join(env.home, ".config", "nvim")
 			writeFile(t, filepath.Join(local, "init.lua"), "local\n")
 
-			err := env.run("bootstrap", tt.flag)
-			assertDirtyGitError(t, err, "bootstrap")
-			if _, statErr := os.Lstat(filepath.Join(env.repo, ".snapshots", "auto-2026-06-04_20-30-00")); !os.IsNotExist(statErr) {
-				t.Fatalf("bootstrap should not snapshot dirty repo state")
+			if err := env.run("bootstrap", tt.flag); err != nil {
+				t.Fatal(err)
 			}
-			info, statErr := os.Lstat(local)
-			if statErr != nil {
-				t.Fatal(statErr)
+			snapshotTarget := filepath.Join(env.repo, ".snapshots", "auto-2026-06-04_20-30-00", "config", "nvim", "init.lua")
+			if got := readFile(t, snapshotTarget); got != "tracked\n" {
+				t.Fatalf("bootstrap snapshot = %q, want pre-change tracked state", got)
 			}
-			if info.Mode()&os.ModeSymlink != 0 {
-				t.Fatalf("bootstrap changed local entry before dirty git check")
+			if !isCorrectSymlink(local, repoTarget) {
+				t.Fatalf("bootstrap should leave local entry as managed symlink")
+			}
+			if tt.flag == "--adopt" {
+				if got := readFile(t, filepath.Join(repoTarget, "init.lua")); got != "local\n" {
+					t.Fatalf("adopted repo target = %q, want local state", got)
+				}
+			} else {
+				if got := readFile(t, filepath.Join(repoTarget, "init.lua")); got != "tracked\n" {
+					t.Fatalf("overwritten repo target = %q, want tracked state", got)
+				}
 			}
 		})
 	}
@@ -243,14 +282,4 @@ echo "unexpected git args: $*" >&2
 exit 2
 `
 	writeExecutable(t, filepath.Join(env.bin, "git"), body)
-}
-
-func assertDirtyGitError(t *testing.T, err error, op string) {
-	t.Helper()
-	if err == nil {
-		t.Fatalf("expected dirty git error for %s", op)
-	}
-	if !strings.Contains(err.Error(), "repo has uncommitted changes") || !strings.Contains(err.Error(), "archstate "+op) {
-		t.Fatalf("unexpected error for %s: %v", op, err)
-	}
 }

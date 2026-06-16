@@ -251,7 +251,7 @@ Automatic snapshots are created silently before risky Archstate mutations and pr
 
 Snapshots do not capture installed packages, pacman cache, system files, or the full home directory.
 
-Repo-state mutations take a per-repo lock so two Archstate commands do not rewrite state at the same time. If the Archstate repo is a Git worktree, destructive repo rewrites require a clean worktree first; commit or stash local changes before running `config add`, `config rm`, `home add`, `home rm`, `bootstrap --adopt`, `bootstrap --overwrite`, or `snapshot restore`. `sync` is allowed to rewrite package state with a dirty worktree because it treats the current machine as source of truth and creates an automatic snapshot first. The optional auto-sync timer runs `sync --commit` so its background rewrites are committed instead of left as a dirty worktree that would block the commands above.
+Repo-state mutations take a per-repo lock so two Archstate commands do not rewrite state at the same time. Archstate does not require a clean Git worktree before changing its own state. Operations that rewrite existing tracked state create an automatic snapshot first, so you can inspect or restore the previous state without committing before every command. The optional auto-sync timer runs `sync --commit` so background package-state rewrites are committed instead of left as local Git changes.
 
 ## Optional Auto-Sync
 
@@ -276,7 +276,7 @@ The timer runs:
 archstate sync --commit
 ```
 
-In a Git repo, `--commit` commits `pacman.conf` and `aur.conf` after a rewrite (only when they changed), so the periodic sync does not leave the worktree dirty — a dirty worktree would otherwise block `config`, `home`, and `bootstrap`. It needs `user.name`/`user.email` configured; without a Git repo it simply rewrites the files.
+In a Git repo, `--commit` commits `pacman.conf` and `aur.conf` after a rewrite (only when they changed), so the periodic sync does not leave package-state changes uncommitted. It needs `user.name`/`user.email` configured; without a Git repo it simply rewrites the files.
 
 Timer defaults:
 

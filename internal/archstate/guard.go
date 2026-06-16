@@ -3,7 +3,6 @@ package archstate
 import (
 	"fmt"
 	"os"
-	"strings"
 )
 
 func (r *Runner) withRepoLock(repo repoPaths, op string, fn func() error) error {
@@ -37,20 +36,4 @@ func (r *Runner) withRepoLock(repo repoPaths, op string, fn func() error) error 
 	}
 	cleanup = false
 	return nil
-}
-
-func (r *Runner) requireCleanGitRepo(repo repoPaths, op string) error {
-	if _, ok, err := repo.gitDir(); err != nil {
-		return err
-	} else if !ok {
-		return nil
-	}
-	out, err := r.commandOutput("git", "-C", repo.path, "status", "--porcelain")
-	if err != nil {
-		return fmt.Errorf("cannot check git status before %s: %w", op, err)
-	}
-	if strings.TrimSpace(out) == "" {
-		return nil
-	}
-	return fmt.Errorf("repo has uncommitted changes; commit or stash them before archstate %s", op)
 }

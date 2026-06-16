@@ -61,9 +61,6 @@ func (r *Runner) runSnapshot(args []string) error {
 			return fmt.Errorf("usage: archstate snapshot restore <id>")
 		}
 		if err := r.withRepoLock(repo, "snapshot restore", func() error {
-			if err := r.requireCleanGitRepo(repo, "snapshot restore"); err != nil {
-				return err
-			}
 			if _, err := r.createAutoSnapshot(repo); err != nil {
 				return err
 			}

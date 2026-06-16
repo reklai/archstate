@@ -374,9 +374,6 @@ func (r *Runner) runManagedAdd(repo repoPaths, root managedRoot, configPath stri
 		return err
 	}
 	return r.withRepoLock(repo, root.Kind+" add", func() error {
-		if err := r.requireCleanGitRepo(repo, managedCommand(root)+" add"); err != nil {
-			return err
-		}
 		return r.runManagedAddLocked(repo, root, configPath, names)
 	})
 }
@@ -507,9 +504,6 @@ func (r *Runner) runManagedRemove(repo repoPaths, root managedRoot, configPath s
 		return err
 	}
 	return r.withRepoLock(repo, root.Kind+" rm", func() error {
-		if err := r.requireCleanGitRepo(repo, managedCommand(root)+" rm"); err != nil {
-			return err
-		}
 		return r.runManagedRemoveLocked(repo, root, configPath, names)
 	})
 }

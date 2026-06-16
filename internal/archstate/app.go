@@ -231,7 +231,7 @@ Sources:
 Options:
   --commit  In a git repo, commit pacman.conf and aur.conf after a rewrite.
             The systemd timer uses this so background syncs do not leave the
-            repo dirty (which would block config/home/bootstrap commands).
+            repo dirty.
 
 Notes:
   Existing package descriptions are preserved by package name.
@@ -400,7 +400,8 @@ Notes:
   The service is opt-in; init does not enable it.
   sync no-ops when package state is already current.
   In a git repo, --commit commits pacman.conf and aur.conf so background syncs
-  do not leave the worktree dirty (needs user.name/user.email configured).`)
+  do not leave package-state changes uncommitted (needs user.name/user.email
+  configured).`)
 	default:
 		return fmt.Errorf("unknown help topic %q; choose init, install, sync, packages, status, config, home, snapshot, bootstrap, doctor, or service", topic)
 	}
@@ -499,9 +500,9 @@ type packageSyncResult struct {
 }
 
 // commitPackageState commits pacman.conf and aur.conf when the repo is a git
-// worktree, so that background (timer) syncs do not leave the tree dirty. It
-// commits only the package-state files and only if they actually changed, so it
-// never makes an empty commit or sweeps up unrelated edits. No-op without git.
+// worktree. It commits only the package-state files and only if they actually
+// changed, so it never makes an empty commit or sweeps up unrelated edits. No-op
+// without git.
 func (r *Runner) commitPackageState(repo repoPaths) (bool, error) {
 	if _, ok, err := repo.gitDir(); err != nil {
 		return false, err
@@ -684,11 +685,6 @@ func (r *Runner) runBootstrap(args []string) error {
 		plan, err := r.buildBootstrapPlan(repo, opts)
 		if err != nil {
 			return err
-		}
-		if plan.hasRiskyManagedActions() {
-			if err := r.requireCleanGitRepo(repo, "bootstrap"); err != nil {
-				return err
-			}
 		}
 		return r.applyBootstrapPlan(plan, opts)
 	})
