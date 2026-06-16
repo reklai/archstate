@@ -53,7 +53,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		home:   home,
 		cwd:    cwd,
 		bin:    bin,
-		repo:   filepath.Join(home, ".config", "archstate"),
+		repo:   filepath.Join(home, ".config", defaultRepoDirName),
 	}
 }
 

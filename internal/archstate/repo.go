@@ -7,7 +7,10 @@ import (
 	"strings"
 )
 
-const markerFile = ".archstate-root"
+const (
+	defaultRepoDirName = "archstate-src"
+	markerFile         = ".archstate-root"
+)
 
 // Repo-state component names. snapshotStateNames must list exactly these
 // (minus the marker); TestSnapshotStateNamesCoversRepoState enforces it.
@@ -47,7 +50,7 @@ func (r *Runner) discoverRepo() (repoPaths, error) {
 			break
 		}
 	}
-	return repoPaths{path: filepath.Join(r.Home, ".config", "archstate"), home: r.Home}, nil
+	return repoPaths{path: filepath.Join(r.Home, ".config", defaultRepoDirName), home: r.Home}, nil
 }
 
 func (r *Runner) discoverExistingRepo() (repoPaths, error) {

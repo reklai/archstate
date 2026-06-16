@@ -6,7 +6,7 @@ Archstate attempts to reproduce your personal Arch-based machine setup from expl
 explicit pacman packages + explicit AUR packages + managed config/home symlinks
 ```
 
-State lives in `~/.config/archstate` as plain files. `bootstrap` installs missing packages, uses `paru` or `yay` for AUR packages, and recreates managed symlinks.
+State lives in `~/.config/archstate-src` as plain files. `bootstrap` installs missing packages, uses `paru` or `yay` for AUR packages, and recreates managed symlinks.
 
 ## Requirements
 
@@ -28,7 +28,7 @@ go build -o archstate ./cmd/archstate
 ./archstate init
 ```
 
-`init` creates `~/.config/archstate` and installs the binary to:
+`init` creates `~/.config/archstate-src` and installs the binary to:
 
 ```text
 ~/.local/bin/archstate
@@ -126,8 +126,8 @@ go build -o archstate ./cmd/archstate
 Clone your Archstate repo into the expected location:
 
 ```bash
-git clone <your-archstate-repo> ~/.config/archstate
-cd ~/.config/archstate
+git clone <your-archstate-repo> ~/.config/archstate-src
+cd ~/.config/archstate-src
 ```
 
 Dry-run first:
@@ -212,7 +212,7 @@ archstate doctor
 Example shape:
 
 ```text
-OK repo: ~/.config/archstate
+OK repo: ~/.config/archstate-src
 ERROR AUR helper: paru/yay not found
   fix: archstate bootstrap --aur-helper paru
   fix: archstate bootstrap --aur-helper yay
@@ -348,7 +348,7 @@ archstate config rm nvim
 Mapping:
 
 ```text
-~/.config/archstate/config/<value> -> ~/.config/<key>
+~/.config/archstate-src/config/<value> -> ~/.config/<key>
 ```
 
 Home entries are direct children of `~`:
@@ -363,7 +363,7 @@ archstate home rm .zshrc
 Mapping:
 
 ```text
-~/.config/archstate/home/<value> -> ~/<key>
+~/.config/archstate-src/home/<value> -> ~/<key>
 ```
 
 Nested paths are intentionally not supported:
@@ -378,7 +378,7 @@ Use direct entries only. This keeps the model easy to inspect and hard to misuse
 ## Repo Layout
 
 ```text
-~/.config/archstate/
+~/.config/archstate-src/
   .archstate-root
   pacman.conf
   aur.conf

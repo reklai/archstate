@@ -153,7 +153,7 @@ Usage:
   archstate <command> [options]
 
 Repo:
-  ~/.config/archstate
+  ~/.config/archstate-src
 
 Common workflow:
   archstate init
@@ -198,7 +198,7 @@ func (r *Runner) printCommandHelp(topic string) error {
 		fmt.Fprintln(r.Stdout, `Usage:
   archstate init [--no-install]
 
-Create ~/.config/archstate, state files, config/home directories, and install
+Create ~/.config/archstate-src, state files, config/home directories, and install
 this archstate binary to ~/.local/bin/archstate.
 
 Options:

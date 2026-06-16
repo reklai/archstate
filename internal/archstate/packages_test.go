@@ -1,6 +1,56 @@
 package archstate
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestQueryPackageNamesTreatsEmptyForeignListAsEmpty(t *testing.T) {
+	env := newTestEnv(t)
+	writeFakePacman(t, env.bin, `
+case "$1" in
+  -Qqem)
+    exit 1
+    ;;
+  *)
+    echo "unexpected pacman args: $*" >&2
+    exit 2
+    ;;
+esac
+`)
+
+	names, err := env.r.queryPackageNames("pacman", "-Qqem")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 0 {
+		t.Fatalf("got packages %v, want none", names)
+	}
+}
+
+func TestQueryPackageNamesReportsForeignQueryErrors(t *testing.T) {
+	env := newTestEnv(t)
+	writeFakePacman(t, env.bin, `
+case "$1" in
+  -Qqem)
+    echo "pacman database is locked" >&2
+    exit 1
+    ;;
+  *)
+    echo "unexpected pacman args: $*" >&2
+    exit 2
+    ;;
+esac
+`)
+
+	_, err := env.r.queryPackageNames("pacman", "-Qqem")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if got := err.Error(); !strings.Contains(got, "pacman -Qqem failed") || !strings.Contains(got, "pacman database is locked") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
 
 func TestParsePacmanInfoFoldsWrappedDescriptions(t *testing.T) {
 	// firefox's Description wraps onto a continuation line; git has a wrapped

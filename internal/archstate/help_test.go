@@ -15,7 +15,7 @@ func TestHelpAliasesPrintCanonicalHelp(t *testing.T) {
 	for _, text := range []string{
 		"Archstate tracks explicit Arch packages",
 		"Usage:\n  archstate <command> [options]",
-		"Repo:\n  ~/.config/archstate",
+		"Repo:\n  ~/.config/archstate-src",
 		"Common workflow:",
 		"Commands:",
 		"  init       Create repo state and install archstate to ~/.local/bin.",

@@ -24,9 +24,15 @@ func buildPackageState(names []string, existing map[string]string, descriptions 
 }
 
 func (r *Runner) queryPackageNames(name string, args ...string) ([]string, error) {
-	out, err := r.commandOutput(name, args...)
+	out, stderr, ran, err := r.commandOutputRaw(name, args...)
 	if err != nil {
-		return nil, err
+		if !ran {
+			return nil, err
+		}
+		if isEmptyPacmanForeignPackageList(name, args, out, stderr, err) {
+			return nil, nil
+		}
+		return nil, formatCommandOutputError(name, args, err, stderr)
 	}
 	var names []string
 	for _, line := range strings.Split(out, "\n") {
@@ -38,6 +44,17 @@ func (r *Runner) queryPackageNames(name string, args ...string) ([]string, error
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+func isEmptyPacmanForeignPackageList(name string, args []string, stdout, stderr string, err error) bool {
+	if name != "pacman" || len(args) != 1 || args[0] != "-Qqem" {
+		return false
+	}
+	if strings.TrimSpace(stdout) != "" || strings.TrimSpace(stderr) != "" {
+		return false
+	}
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr) && exitErr.ExitCode() == 1
 }
 
 func (r *Runner) queryPackageDescriptions(names []string) (map[string]string, error) {
@@ -274,9 +291,20 @@ func (r *Runner) requireCommand(name string) error {
 }
 
 func (r *Runner) commandOutput(name string, args ...string) (string, error) {
+	out, stderr, ran, err := r.commandOutputRaw(name, args...)
+	if err != nil {
+		if !ran {
+			return "", err
+		}
+		return "", formatCommandOutputError(name, args, err, stderr)
+	}
+	return out, nil
+}
+
+func (r *Runner) commandOutputRaw(name string, args ...string) (string, string, bool, error) {
 	path, err := r.lookPath(name)
 	if err != nil {
-		return "", err
+		return "", "", false, err
 	}
 	cmd := exec.Command(path, args...)
 	cmd.Env = r.Env
@@ -285,13 +313,17 @@ func (r *Runner) commandOutput(name string, args ...string) (string, error) {
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg != "" {
-			return "", fmt.Errorf("%s %s failed: %w: %s", name, strings.Join(args, " "), err, msg)
-		}
-		return "", fmt.Errorf("%s %s failed: %w", name, strings.Join(args, " "), err)
+		return string(out), stderr.String(), true, err
 	}
-	return string(out), nil
+	return string(out), stderr.String(), true, nil
+}
+
+func formatCommandOutputError(name string, args []string, err error, stderr string) error {
+	msg := strings.TrimSpace(stderr)
+	if msg != "" {
+		return fmt.Errorf("%s %s failed: %w: %s", name, strings.Join(args, " "), err, msg)
+	}
+	return fmt.Errorf("%s %s failed: %w", name, strings.Join(args, " "), err)
 }
 
 func (r *Runner) streamCommand(name string, args ...string) error {
