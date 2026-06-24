@@ -82,7 +82,7 @@ func (r *Runner) runSnapshot(args []string) error {
 		fmt.Fprintf(r.Stdout, "removed snapshot %s\n", args[1])
 		return nil
 	default:
-		return fmt.Errorf("unknown snapshot command %q", args[0])
+		return fmt.Errorf("unknown snapshot command %q; expected save, list, restore, or rm (see 'archstate help snapshot')", args[0])
 	}
 }
 
@@ -249,13 +249,13 @@ func copySnapshotState(repo repoPaths, dst string) error {
 
 func restoreSnapshot(repo repoPaths, id string) error {
 	if _, err := parseSnapshotID(id); err != nil {
-		return err
+		return fmt.Errorf("%w; run 'archstate snapshot list' to see valid ids", err)
 	}
 	src := repo.snapshotPath(id)
 	info, err := os.Lstat(src)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("snapshot not found: %s", id)
+			return fmt.Errorf("snapshot not found: %s; run 'archstate snapshot list' to see available snapshots", id)
 		}
 		return err
 	}
@@ -313,13 +313,13 @@ func restoreSnapshot(repo repoPaths, id string) error {
 
 func removeSnapshot(repo repoPaths, id string) error {
 	if _, err := parseSnapshotID(id); err != nil {
-		return err
+		return fmt.Errorf("%w; run 'archstate snapshot list' to see valid ids", err)
 	}
 	path := repo.snapshotPath(id)
 	info, err := os.Lstat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("snapshot not found: %s", id)
+			return fmt.Errorf("snapshot not found: %s; run 'archstate snapshot list' to see available snapshots", id)
 		}
 		return err
 	}

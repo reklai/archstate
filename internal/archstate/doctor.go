@@ -186,7 +186,7 @@ func reportManagedDoctor(report *doctorReport, root managedRoot, entries map[str
 				"fix keep local: archstate bootstrap --adopt",
 			}
 			if pathExists(action.RepoPath) {
-				hints = append(hints, "fix restore tracked: archstate bootstrap --overwrite")
+				hints = append(hints, "fix restore tracked: archstate bootstrap --restore")
 			}
 			report.ERRORMessage(label, "unmanaged local entry exists", hints...)
 		case ManagedErrorAction:

@@ -37,7 +37,7 @@ func TestConfigAddIsAllOrNothingWhenOneConflicts(t *testing.T) {
 	writeFile(t, filepath.Join(env.repo, "config", "kitty", "old.conf"), "exists\n") // repo target already exists -> conflict
 
 	err := env.run("config", "add", "nvim", "kitty")
-	if err == nil || !strings.Contains(err.Error(), "repo target already exists") {
+	if err == nil || !strings.Contains(err.Error(), "a different tracked copy already exists") {
 		t.Fatalf("expected a conflict abort, got: %v", err)
 	}
 	// the good entry must not have been touched (validate-all-then-apply)

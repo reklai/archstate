@@ -11,12 +11,12 @@ import (
 type ManagedActionKind string
 
 const (
-	ManagedNoopAction      ManagedActionKind = "noop"
-	ManagedSymlinkAction   ManagedActionKind = "symlink"
-	ManagedAdoptAction     ManagedActionKind = "adopt"
-	ManagedOverwriteAction ManagedActionKind = "overwrite"
-	ManagedConflictAction  ManagedActionKind = "conflict"
-	ManagedErrorAction     ManagedActionKind = "error"
+	ManagedNoopAction     ManagedActionKind = "noop"
+	ManagedSymlinkAction  ManagedActionKind = "symlink"
+	ManagedAdoptAction    ManagedActionKind = "adopt"
+	ManagedRestoreAction  ManagedActionKind = "restore"
+	ManagedConflictAction ManagedActionKind = "conflict"
+	ManagedErrorAction    ManagedActionKind = "error"
 )
 
 type ManagedAction struct {
@@ -27,6 +27,9 @@ type ManagedAction struct {
 	RepoPath  string
 	Message   string
 	Err       error
+	// ReplacesRepo is set on an adopt action whose tracked copy already exists,
+	// so the plan/status output can warn that adopting will discard it.
+	ReplacesRepo bool
 }
 
 type managedRoot struct {
@@ -83,6 +86,7 @@ func planHomeFile(repo repoPaths, name, target string, opts BootstrapOptions) Ma
 func planManagedEntry(root managedRoot, name, target string, opts BootstrapOptions) ManagedAction {
 	localPath := root.LocalPath(name)
 	repoPath := root.RepoPath(target)
+	cmd := managedCommand(root)
 	action := ManagedAction{
 		Name:      name,
 		Target:    target,
@@ -95,7 +99,7 @@ func planManagedEntry(root managedRoot, name, target string, opts BootstrapOptio
 	repoMissing := os.IsNotExist(repoErr)
 	if localErr != nil && !localMissing {
 		action.Kind = ManagedErrorAction
-		action.Err = localErr
+		action.Err = fmt.Errorf("cannot read %s %q at %s: %w", root.Kind, name, localPath, localErr)
 		return action
 	}
 	if err := checkRepoTarget(repoInfo, repoErr, repoPath); err != nil {
@@ -107,18 +111,19 @@ func planManagedEntry(root managedRoot, name, target string, opts BootstrapOptio
 	if localMissing {
 		if repoMissing {
 			action.Kind = ManagedErrorAction
-			action.Err = fmt.Errorf("repo target is missing: %s", repoPath)
+			action.Err = fmt.Errorf("%s %q is tracked but its saved copy is missing at %s, and nothing exists at %s to link; restore a snapshot, or run 'archstate %s rm %s' to stop tracking it", root.Kind, name, repoPath, localPath, cmd, name)
 			return action
 		}
 		action.Kind = ManagedSymlinkAction
 		return action
 	}
 
-	if localInfo.Mode()&os.ModeSymlink != 0 {
+	localIsSymlink := localInfo.Mode()&os.ModeSymlink != 0
+	if localIsSymlink {
 		if isCorrectSymlink(localPath, repoPath) {
 			if repoMissing {
 				action.Kind = ManagedErrorAction
-				action.Err = fmt.Errorf("repo target is missing: %s", repoPath)
+				action.Err = fmt.Errorf("%s %q is a managed symlink but its tracked copy is missing at %s; restore a snapshot, or run 'archstate %s rm %s' to stop tracking it", root.Kind, name, repoPath, cmd, name)
 				return action
 			}
 			action.Kind = ManagedNoopAction
@@ -126,32 +131,64 @@ func planManagedEntry(root managedRoot, name, target string, opts BootstrapOptio
 		}
 		if opts.Adopt {
 			action.Kind = ManagedErrorAction
-			action.Err = fmt.Errorf("cannot adopt symlink %s; replace it with a real file or directory first", localPath)
+			action.Err = adoptSymlinkError(root, name, localPath, repoMissing)
 			return action
 		}
 	}
 
 	if opts.Adopt {
 		action.Kind = ManagedAdoptAction
+		action.ReplacesRepo = !repoMissing
 		return action
 	}
-	if opts.Overwrite {
+	if opts.Restore {
 		if repoMissing {
 			action.Kind = ManagedErrorAction
-			action.Err = fmt.Errorf("cannot overwrite %s: no tracked copy exists at %s; use --adopt to save the current config into Archstate", localPath, repoPath)
+			action.Err = fmt.Errorf("cannot restore %s %q: no tracked copy exists yet at %s; use --adopt to save the current %s into Archstate instead", root.Kind, name, repoPath, root.Kind)
 			return action
 		}
-		action.Kind = ManagedOverwriteAction
+		action.Kind = ManagedRestoreAction
 		return action
 	}
 
 	action.Kind = ManagedConflictAction
-	if repoMissing {
-		action.Message = "no tracked copy exists; use --adopt to save the current " + root.Kind + " into Archstate"
-	} else {
-		action.Message = "use --adopt to save the current " + root.Kind + " into Archstate, or --overwrite to restore the tracked copy"
-	}
+	action.Message = conflictMessage(root, localPath, localIsSymlink, repoMissing)
 	return action
+}
+
+// adoptSymlinkError explains why --adopt cannot act on a symlink and what to do
+// instead, tailored to whether a tracked copy exists to restore.
+func adoptSymlinkError(root managedRoot, name, localPath string, repoMissing bool) error {
+	tgt := symlinkTargetHint(localPath)
+	if repoMissing {
+		return fmt.Errorf("cannot adopt %s %q: %s is a symlink%s and no tracked copy exists yet; replace it with a real file or dir, then re-run --adopt", root.Kind, name, localPath, tgt)
+	}
+	return fmt.Errorf("cannot adopt %s %q: %s is a symlink%s, not a real file; use --restore to install the tracked copy over it, or replace it with a real file or dir to adopt", root.Kind, name, localPath, tgt)
+}
+
+// conflictMessage describes an unmanaged-entry conflict and the exact flags that
+// resolve it, narrowed to the case at hand so no suggested flag would error.
+func conflictMessage(root managedRoot, localPath string, localIsSymlink, repoMissing bool) string {
+	switch {
+	case localIsSymlink && repoMissing:
+		return fmt.Sprintf("path is a symlink%s and no tracked copy exists yet; replace it with a real file or dir, then use --adopt to save it", symlinkTargetHint(localPath))
+	case localIsSymlink:
+		return fmt.Sprintf("path is a symlink%s, not the tracked copy; use --restore to install the tracked copy over it, or replace it with a real file or dir to adopt it", symlinkTargetHint(localPath))
+	case repoMissing:
+		return "no tracked copy exists yet; use --adopt to save the current " + root.Kind + " into Archstate"
+	default:
+		return "use --adopt to save the current " + root.Kind + " into Archstate, or --restore to install the tracked copy over it"
+	}
+}
+
+// symlinkTargetHint returns " to <target>" for a readable symlink, or "" when the
+// link cannot be read, so callers can splice it in without a dangling preposition.
+func symlinkTargetHint(localPath string) string {
+	target, err := os.Readlink(localPath)
+	if err != nil {
+		return ""
+	}
+	return " to " + target
 }
 
 func applyManagedAction(action ManagedAction) error {
@@ -162,13 +199,13 @@ func applyManagedAction(action ManagedAction) error {
 		return createConfigSymlink(action.LocalPath, action.RepoPath)
 	case ManagedAdoptAction:
 		return adoptManagedEntry(action.LocalPath, action.RepoPath, true)
-	case ManagedOverwriteAction:
+	case ManagedRestoreAction:
 		if err := os.RemoveAll(action.LocalPath); err != nil {
 			return err
 		}
 		return createConfigSymlink(action.LocalPath, action.RepoPath)
 	case ManagedConflictAction:
-		return fmt.Errorf("unmanaged config conflict at %s", action.LocalPath)
+		return fmt.Errorf("unmanaged conflict at %s: %s", action.LocalPath, action.Message)
 	case ManagedErrorAction:
 		return action.Err
 	default:
@@ -246,7 +283,7 @@ func checkRepoTarget(info os.FileInfo, err error, repoPath string) error {
 		return err
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("repo target must not be a symlink: %s", repoPath)
+		return fmt.Errorf("tracked copy at %s must be a real file or dir, not a symlink; remove it from the repo, then re-add the entry", repoPath)
 	}
 	return nil
 }
@@ -260,7 +297,7 @@ func (r *Runner) runHomeAdd(repo repoPaths, names []string) error {
 }
 
 // validateNameArgs guards the chained name list for add/rm: at least one name,
-// nothing that looks like a flag (a likely typo such as `add --overwrite nvim`),
+// nothing that looks like a flag (a likely typo such as `add --restore nvim`),
 // and no duplicates within one command.
 func validateNameArgs(names []string) error {
 	if len(names) == 0 {
@@ -469,10 +506,10 @@ func planManagedAdd(root managedRoot, name string) (managedAddStep, error) {
 			return step, nil
 		}
 		if repoExists {
-			return step, fmt.Errorf("cannot adopt %s because repo target already exists: %s", step.localPath, step.repoPath)
+			return step, fmt.Errorf("cannot add %q: a different tracked copy already exists at %s; run 'archstate bootstrap --adopt' to replace it with the local %s, or 'archstate bootstrap --restore' to install the tracked copy", name, step.repoPath, root.Kind)
 		}
 		if localInfo.Mode()&os.ModeSymlink != 0 {
-			return step, fmt.Errorf("cannot adopt symlink %s; replace it with a real file or directory first", step.localPath)
+			return step, fmt.Errorf("cannot add %q: %s is a symlink%s, not a real file or dir; replace it with a real file or dir first", name, step.localPath, symlinkTargetHint(step.localPath))
 		}
 		step.action = managedAddAdopt
 		return step, nil

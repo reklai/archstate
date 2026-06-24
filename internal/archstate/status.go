@@ -90,9 +90,9 @@ func printManagedStatus(w io.Writer, title, empty string, actions []ManagedActio
 		case ManagedErrorAction:
 			fmt.Fprintf(w, "  error %s: %v\n", action.Name, action.Err)
 		case ManagedAdoptAction:
-			fmt.Fprintf(w, "  adopt %s: %s -> %s\n", action.Name, action.LocalPath, action.RepoPath)
-		case ManagedOverwriteAction:
-			fmt.Fprintf(w, "  overwrite %s: %s -> %s\n", action.Name, action.RepoPath, action.LocalPath)
+			fmt.Fprintf(w, "  adopt %s: %s -> %s%s\n", action.Name, action.LocalPath, action.RepoPath, replacingSuffix(action))
+		case ManagedRestoreAction:
+			fmt.Fprintf(w, "  restore %s: %s -> %s\n", action.Name, action.RepoPath, action.LocalPath)
 		}
 	})
 }

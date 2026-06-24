@@ -137,7 +137,7 @@ func TestConfigAddRejectsForeignLocalSymlink(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected foreign symlink adoption to fail")
 	}
-	if !strings.Contains(err.Error(), "cannot adopt symlink") {
+	if !strings.Contains(err.Error(), "is a symlink") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	target, err := os.Readlink(local)
@@ -166,7 +166,7 @@ func TestConfigAddRejectsRepoTargetSymlink(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected repo symlink target to fail")
 	}
-	if !strings.Contains(err.Error(), "repo target must not be a symlink") {
+	if !strings.Contains(err.Error(), "must be a real file or dir, not a symlink") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -187,7 +187,7 @@ func TestConfigRemoveRejectsRepoTargetSymlinkBeforeSnapshot(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected repo symlink target to fail")
 	}
-	if !strings.Contains(err.Error(), "repo target must not be a symlink") {
+	if !strings.Contains(err.Error(), "must be a real file or dir, not a symlink") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if _, statErr := os.Lstat(filepath.Join(env.repo, ".snapshots", "auto-2026-06-04_19-00-00")); !os.IsNotExist(statErr) {
@@ -225,7 +225,7 @@ esac
 	if err := env.run("status"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(env.stdout.String(), "error nvim: repo target is missing") {
+	if !strings.Contains(env.stdout.String(), `error nvim: config "nvim" is a managed symlink but its tracked copy is missing`) {
 		t.Fatalf("status did not report broken managed symlink:\n%s", env.stdout.String())
 	}
 }

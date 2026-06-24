@@ -70,7 +70,7 @@ func (r *Runner) selectPackagesForRemoval(inventory packageRemovalInventory) ([]
 		return r.packageRemovalTUI(inventory)
 	}
 	if !interactiveTerminal(r.Stdin, r.Stdout) {
-		return nil, fmt.Errorf("archstate packages requires an interactive terminal")
+		return nil, fmt.Errorf("archstate packages requires an interactive terminal; run it directly in a terminal, not through a pipe or in a script")
 	}
 
 	program := tea.NewProgram(

@@ -37,7 +37,7 @@ func (r *Runner) runService(args []string) error {
 	case "uninstall":
 		return r.runServiceUninstall()
 	default:
-		return fmt.Errorf("unknown service command %q", args[0])
+		return fmt.Errorf("unknown service command %q; expected install, enable, status, disable, or uninstall (see 'archstate help service')", args[0])
 	}
 }
 

@@ -117,7 +117,7 @@ func (r *Runner) Run(args []string) error {
 		}
 		return r.runDoctor()
 	default:
-		return fmt.Errorf("unknown command %q", args[0])
+		return fmt.Errorf("unknown command %q; run 'archstate help' to see available commands", args[0])
 	}
 }
 
@@ -338,29 +338,42 @@ Notes:
 	case "bootstrap":
 		fmt.Fprintln(r.Stdout, `Usage:
   archstate bootstrap --dry-run
-  archstate bootstrap [--adopt|--overwrite] [--aur-helper paru|yay]
-  archstate bootstrap --dotfiles [--adopt|--overwrite]
+  archstate bootstrap [--adopt|--restore] [--aur-helper paru|yay]
+  archstate bootstrap --dotfiles [--adopt|--restore]
+  archstate bootstrap --packages [--aur-helper paru|yay]
 
 Install missing packages and create managed config/home symlinks.
 
+Each managed entry has two copies: the local one (~/.config/<name> or ~/<name>)
+and the tracked one saved in the repo. Bootstrap links local to tracked. When a
+real local file already exists and differs, that is a conflict you resolve with
+--adopt (keep local) or --restore (keep tracked).
+
 Options:
-  --dry-run              Show planned installs, symlinks, conflicts, adoptions, or overwrites.
+  --dry-run              Show planned installs, symlinks, conflicts, adoptions, or restores.
   --dotfiles             Apply only config/home symlinks; skip packages (needs no sudo or pacman).
+  --packages             Install only packages; skip config/home symlinks (ignores file conflicts).
   --aur-helper paru|yay  Use the selected AUR helper. If missing, bootstrap the matching helper.
-  --adopt                Save unmanaged local config/home entries into Archstate, then symlink.
-  --overwrite            Restore tracked Archstate entries over unmanaged local files.
+  --adopt                Keep the local entry: save it into Archstate, then symlink.
+                         If a tracked copy already exists it is replaced (shown as
+                         "replacing tracked copy" in --dry-run; an auto-snapshot is taken first).
+  --restore              Keep the tracked entry: install the Archstate copy over the local one.
+                         Fails if no tracked copy exists yet (use --adopt instead).
 
 Conflict behavior:
-  Naked bootstrap fails on unmanaged config/home conflicts.
-  --adopt works whether the tracked copy exists or not.
-  --overwrite fails if the tracked copy is missing.
+  A plain bootstrap stops on the first unmanaged config/home conflict and installs
+  nothing, so package installs and file decisions never get mixed silently. Resolve
+  per entry with 'archstate config add/rm' and 'archstate home add/rm', or resolve
+  them all at once with --adopt or --restore. Use --packages to install packages now
+  and deal with file conflicts later. Risky actions (adopt/restore) auto-snapshot first.
 
 Examples:
   archstate bootstrap --dry-run
-  archstate bootstrap --dotfiles --overwrite
+  archstate bootstrap --dotfiles --restore
+  archstate bootstrap --packages
   archstate bootstrap --aur-helper paru
   archstate bootstrap --adopt
-  archstate bootstrap --overwrite`)
+  archstate bootstrap --restore`)
 	case "doctor":
 		fmt.Fprintln(r.Stdout, `Usage:
   archstate doctor
@@ -604,7 +617,7 @@ func (r *Runner) runPackages(args []string) error {
 		return err
 	}
 	if r.packageRemovalTUI == nil && !interactiveTerminal(r.Stdin, r.Stdout) {
-		return fmt.Errorf("archstate packages requires an interactive terminal")
+		return fmt.Errorf("archstate packages requires an interactive terminal; run it directly in a terminal, not through a pipe or in a script")
 	}
 
 	return r.withRepoLock(repo, "packages", func() error {
@@ -641,26 +654,49 @@ func (r *Runner) runPackages(args []string) error {
 	})
 }
 
+// checkRenamedOverwriteFlag turns the removed --overwrite flag into a clear
+// pointer to its replacement instead of the flag package's generic "not defined"
+// error, so anyone with the old muscle memory knows exactly what to type.
+func checkRenamedOverwriteFlag(args []string) error {
+	for _, arg := range args {
+		if arg == "--overwrite" || arg == "-overwrite" ||
+			strings.HasPrefix(arg, "--overwrite=") || strings.HasPrefix(arg, "-overwrite=") {
+			return errors.New("the --overwrite flag was renamed to --restore")
+		}
+	}
+	return nil
+}
+
 func (r *Runner) runBootstrap(args []string) error {
 	if len(args) == 1 && isHelpArg(args[0]) {
 		return r.printCommandHelp("bootstrap")
+	}
+	if err := checkRenamedOverwriteFlag(args); err != nil {
+		return err
 	}
 	fs := flag.NewFlagSet("bootstrap", flag.ContinueOnError)
 	fs.SetOutput(r.Stderr)
 	var opts BootstrapOptions
 	fs.BoolVar(&opts.DryRun, "dry-run", false, "show planned changes without applying them")
 	fs.BoolVar(&opts.DotFiles, "dotfiles", false, "apply only config/home symlinks; skip packages (no sudo)")
-	fs.BoolVar(&opts.Adopt, "adopt", false, "save existing .config conflicts into Archstate")
-	fs.BoolVar(&opts.Overwrite, "overwrite", false, "restore tracked Archstate config over .config conflicts")
+	fs.BoolVar(&opts.Packages, "packages", false, "install only packages; skip config/home symlinks")
+	fs.BoolVar(&opts.Adopt, "adopt", false, "save existing config/home conflicts into Archstate, then symlink")
+	fs.BoolVar(&opts.Restore, "restore", false, "install tracked Archstate copies over config/home conflicts")
 	fs.StringVar(&opts.AURHelper, "aur-helper", "", "choose AUR helper to use or bootstrap: paru or yay")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
-		return fmt.Errorf("usage: archstate bootstrap [--dry-run] [--dotfiles] [--adopt|--overwrite] [--aur-helper paru|yay]")
+		return fmt.Errorf("usage: archstate bootstrap [--dry-run] [--dotfiles|--packages] [--adopt|--restore] [--aur-helper paru|yay]")
 	}
-	if opts.Adopt && opts.Overwrite {
-		return errors.New("--adopt and --overwrite are mutually exclusive")
+	if opts.Adopt && opts.Restore {
+		return errors.New("--adopt and --restore are mutually exclusive")
+	}
+	if opts.DotFiles && opts.Packages {
+		return errors.New("--dotfiles and --packages are mutually exclusive: one skips packages, the other skips config/home")
+	}
+	if opts.Packages && (opts.Adopt || opts.Restore) {
+		return errors.New("--packages skips config/home, so --adopt and --restore have no effect")
 	}
 	if opts.DotFiles && opts.AURHelper != "" {
 		return errors.New("--dotfiles skips packages, so --aur-helper has no effect")
@@ -723,7 +759,7 @@ func (r *Runner) runConfig(args []string) error {
 		}
 		return r.runConfigRemove(repo, args[1:])
 	default:
-		return fmt.Errorf("unknown config command %q", args[0])
+		return fmt.Errorf("unknown config command %q; expected add, list, preview, or rm (see 'archstate help config')", args[0])
 	}
 }
 
@@ -760,7 +796,7 @@ func (r *Runner) runHome(args []string) error {
 		}
 		return r.runHomeRemove(repo, args[1:])
 	default:
-		return fmt.Errorf("unknown home command %q", args[0])
+		return fmt.Errorf("unknown home command %q; expected add, list, preview, or rm (see 'archstate help home')", args[0])
 	}
 }
 

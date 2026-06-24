@@ -162,7 +162,7 @@ func TestDirtyGitRepoDoesNotBlockBootstrapRiskyManagedActions(t *testing.T) {
 		flag string
 	}{
 		{name: "adopt", flag: "--adopt"},
-		{name: "overwrite", flag: "--overwrite"},
+		{name: "restore", flag: "--restore"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

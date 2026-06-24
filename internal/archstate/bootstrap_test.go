@@ -371,7 +371,7 @@ esac
 	if err == nil {
 		t.Fatal("expected conflict error")
 	}
-	if !strings.Contains(err.Error(), "unmanaged config conflict") {
+	if !strings.Contains(err.Error(), "unmanaged conflict") {
 		t.Fatalf("expected config conflict error, got %v", err)
 	}
 	if _, statErr := os.Stat(logPath); !os.IsNotExist(statErr) {
@@ -408,10 +408,10 @@ esac
 	if err == nil {
 		t.Fatal("expected conflict error")
 	}
-	if !strings.Contains(err.Error(), "unmanaged config conflict") {
+	if !strings.Contains(err.Error(), "unmanaged conflict") {
 		t.Fatalf("expected conflict error, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "use --adopt to save the current config into Archstate, or --overwrite to restore the tracked copy") {
+	if !strings.Contains(err.Error(), "use --adopt to save the current config into Archstate, or --restore to install the tracked copy over it") {
 		t.Fatalf("expected conflict policy guidance, got %v", err)
 	}
 	if _, statErr := os.Stat(logPath); !os.IsNotExist(statErr) {
@@ -495,7 +495,7 @@ esac
 	}
 }
 
-func TestBootstrapOverwriteConflict(t *testing.T) {
+func TestBootstrapRestoreConflict(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -517,7 +517,7 @@ esac
 	}
 	writeFile(t, filepath.Join(env.home, ".config", "nvim"), "local config\n")
 
-	if err := env.run("bootstrap", "--overwrite"); err != nil {
+	if err := env.run("bootstrap", "--restore"); err != nil {
 		t.Fatal(err)
 	}
 	link := filepath.Join(env.home, ".config", "nvim")
@@ -530,7 +530,7 @@ esac
 	}
 }
 
-func TestBootstrapOverwriteFailsWhenRepoTargetIsMissing(t *testing.T) {
+func TestBootstrapRestoreFailsWhenRepoTargetIsMissing(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -550,11 +550,11 @@ esac
 	local := filepath.Join(env.home, ".config", "nvim")
 	writeFile(t, local, "local config\n")
 
-	err := env.run("bootstrap", "--overwrite")
+	err := env.run("bootstrap", "--restore")
 	if err == nil {
-		t.Fatal("expected overwrite to fail without repo target")
+		t.Fatal("expected restore to fail without repo target")
 	}
-	if !strings.Contains(err.Error(), "cannot overwrite") || !strings.Contains(err.Error(), "no tracked copy exists") {
+	if !strings.Contains(err.Error(), "cannot restore") || !strings.Contains(err.Error(), "no tracked copy exists") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got := readFile(t, local); got != "local config\n" {
@@ -589,22 +589,22 @@ esac
 	if err := env.run("bootstrap", "--dry-run"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(env.stdout.String(), "conflict "+local+": use --adopt to save the current config into Archstate, or --overwrite to restore the tracked copy") {
+	if !strings.Contains(env.stdout.String(), "conflict "+local+": use --adopt to save the current config into Archstate, or --restore to install the tracked copy over it") {
 		t.Fatalf("preview did not show conflict policy:\n%s", env.stdout.String())
 	}
 
 	if err := env.run("bootstrap", "--dry-run", "--adopt"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(env.stdout.String(), "adopt "+local+" -> "+repoTarget) {
-		t.Fatalf("preview did not show adopt action:\n%s", env.stdout.String())
+	if !strings.Contains(env.stdout.String(), "adopt "+local+" -> "+repoTarget+" (replacing tracked copy)") {
+		t.Fatalf("preview did not show adopt action with replacement note:\n%s", env.stdout.String())
 	}
 
-	if err := env.run("bootstrap", "--dry-run", "--overwrite"); err != nil {
+	if err := env.run("bootstrap", "--dry-run", "--restore"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(env.stdout.String(), "overwrite "+repoTarget+" -> "+local) {
-		t.Fatalf("preview did not show overwrite action:\n%s", env.stdout.String())
+	if !strings.Contains(env.stdout.String(), "restore "+repoTarget+" -> "+local) {
+		t.Fatalf("preview did not show restore action:\n%s", env.stdout.String())
 	}
 }
 
@@ -641,7 +641,7 @@ esac
 	if err == nil {
 		t.Fatal("expected bootstrap adopt to reject foreign symlink")
 	}
-	if !strings.Contains(err.Error(), "cannot adopt symlink") {
+	if !strings.Contains(err.Error(), "is a symlink") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	target, err := os.Readlink(local)
@@ -653,7 +653,7 @@ esac
 	}
 }
 
-func TestBootstrapOverwriteReplacesForeignLocalSymlink(t *testing.T) {
+func TestBootstrapRestoreReplacesForeignLocalSymlink(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -684,7 +684,7 @@ esac
 		t.Fatal(err)
 	}
 
-	if err := env.run("bootstrap", "--overwrite"); err != nil {
+	if err := env.run("bootstrap", "--restore"); err != nil {
 		t.Fatal(err)
 	}
 	target, err := os.Readlink(local)
@@ -748,5 +748,115 @@ func TestBootstrapDotFilesDryRunSkipsPackagePlan(t *testing.T) {
 	}
 	if strings.Contains(out, "native install:") {
 		t.Fatalf("dry-run should not show a package plan in --dotfiles mode:\n%s", out)
+	}
+}
+
+func TestBootstrapPackagesInstallsPackagesAndSkipsConflictingFiles(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	logPath := filepath.Join(env.root, "packages-only.log")
+	env.r.Env = append(env.r.Env, "ARCHSTATE_LOG="+logPath)
+	writeFakePacman(t, env.bin, `
+case "$1" in
+  -Qq)
+    printf ''
+    ;;
+  *)
+    echo "unexpected pacman args: $*" >&2
+    exit 2
+    ;;
+esac
+`)
+	writeExecutable(t, filepath.Join(env.bin, "sudo"), "echo \"sudo $*\" >> \"$ARCHSTATE_LOG\"\n")
+	writeFile(t, filepath.Join(env.repo, "pacman.conf"), generatedHeader+"neovim=desc\n")
+	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader)
+	// A config conflict that would stop a plain bootstrap before any install.
+	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader+"nvim=nvim\n")
+	if err := os.MkdirAll(filepath.Join(env.repo, "config", "nvim"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(env.home, ".config", "nvim")
+	writeFile(t, local, "local config\n")
+
+	if err := env.run("bootstrap", "--packages"); err != nil {
+		t.Fatalf("--packages should install packages despite the file conflict: %v", err)
+	}
+	if log := readFile(t, logPath); !strings.Contains(log, "sudo pacman -S --needed neovim") {
+		t.Fatalf("packages were not installed:\n%s", log)
+	}
+	info, err := os.Lstat(local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("--packages should leave config/home entries untouched")
+	}
+}
+
+func TestBootstrapPackagesDryRunSkipsManagedPlan(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	writeFakePacman(t, env.bin, `
+case "$1" in
+  -Qq)
+    printf ''
+    ;;
+  *)
+    echo "unexpected pacman args: $*" >&2
+    exit 2
+    ;;
+esac
+`)
+	writeFile(t, filepath.Join(env.repo, "pacman.conf"), generatedHeader+"neovim=desc\n")
+	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader)
+	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader+"nvim=nvim\n")
+	if err := os.MkdirAll(filepath.Join(env.repo, "config", "nvim"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(env.home, ".config", "nvim"), "local config\n")
+
+	if err := env.run("bootstrap", "--packages", "--dry-run"); err != nil {
+		t.Fatal(err)
+	}
+	out := env.stdout.String()
+	if !strings.Contains(out, "native install: neovim") {
+		t.Fatalf("dry-run did not show the package plan:\n%s", out)
+	}
+	if !strings.Contains(out, "skipped (--packages)") {
+		t.Fatalf("dry-run did not note skipped config/home:\n%s", out)
+	}
+	if strings.Contains(out, "conflict") {
+		t.Fatalf("--packages dry-run should not surface file conflicts:\n%s", out)
+	}
+}
+
+func TestBootstrapPackagesRejectsConflictingFlags(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"bootstrap", "--packages", "--dotfiles"}, "mutually exclusive"},
+		{[]string{"bootstrap", "--packages", "--adopt"}, "have no effect"},
+		{[]string{"bootstrap", "--packages", "--restore"}, "have no effect"},
+	}
+	for _, tc := range cases {
+		err := env.run(tc.args...)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("run(%v): want error containing %q, got %v", tc.args, tc.want, err)
+		}
+	}
+}
+
+func TestBootstrapOverwriteFlagRenamedToRestore(t *testing.T) {
+	env := newTestEnv(t)
+	env.initRepo(t)
+
+	for _, arg := range []string{"--overwrite", "--overwrite=true"} {
+		err := env.run("bootstrap", arg)
+		if err == nil || !strings.Contains(err.Error(), "the --overwrite flag was renamed to --restore") {
+			t.Fatalf("run(bootstrap %s): want rename guidance, got %v", arg, err)
+		}
 	}
 }

@@ -10,8 +10,9 @@ import (
 type BootstrapOptions struct {
 	DryRun    bool
 	DotFiles  bool
+	Packages  bool
 	Adopt     bool
-	Overwrite bool
+	Restore   bool
 	AURHelper string
 }
 
@@ -30,19 +31,21 @@ type BootstrapPlan struct {
 }
 
 func (r *Runner) buildBootstrapPlan(repo repoPaths, opts BootstrapOptions) (BootstrapPlan, error) {
-	configState, err := readStateFileStrictOptional(repo.configPath(), validateManagedEntry)
-	if err != nil {
-		return BootstrapPlan{}, err
-	}
-	homeState, err := readStateFileStrictOptional(repo.homePath(), validateManagedEntry)
-	if err != nil {
-		return BootstrapPlan{}, err
-	}
+	plan := BootstrapPlan{Repo: repo}
 
-	plan := BootstrapPlan{
-		Repo:          repo,
-		ConfigActions: planConfigs(repo, configState, opts),
-		HomeActions:   planHomeFiles(repo, homeState, opts),
+	// --packages is the packages-only path: it skips config/home entirely, so an
+	// unmanaged file conflict never blocks a package install on a fresh machine.
+	if !opts.Packages {
+		configState, err := readStateFileStrictOptional(repo.configPath(), validateManagedEntry)
+		if err != nil {
+			return BootstrapPlan{}, err
+		}
+		homeState, err := readStateFileStrictOptional(repo.homePath(), validateManagedEntry)
+		if err != nil {
+			return BootstrapPlan{}, err
+		}
+		plan.ConfigActions = planConfigs(repo, configState, opts)
+		plan.HomeActions = planHomeFiles(repo, homeState, opts)
 	}
 
 	// --dotfiles is the user-space-only path: it never reads package files,
@@ -102,6 +105,13 @@ func (r *Runner) printBootstrapPlan(plan BootstrapPlan, opts BootstrapOptions) {
 		}
 	}
 
+	if opts.Packages {
+		fmt.Fprintln(r.Stdout, "Config plan:")
+		fmt.Fprintln(r.Stdout, "  skipped (--packages)")
+		fmt.Fprintln(r.Stdout, "Home file plan:")
+		fmt.Fprintln(r.Stdout, "  skipped (--packages)")
+		return
+	}
 	printManagedPlan(r.Stdout, "Config plan:", "no config entries declared", plan.ConfigActions)
 	printManagedPlan(r.Stdout, "Home file plan:", "no home files declared", plan.HomeActions)
 }
@@ -114,9 +124,9 @@ func printManagedPlan(w io.Writer, title, empty string, actions []ManagedAction)
 		case ManagedSymlinkAction:
 			fmt.Fprintf(w, "  link %s -> %s\n", action.LocalPath, action.RepoPath)
 		case ManagedAdoptAction:
-			fmt.Fprintf(w, "  adopt %s -> %s\n", action.LocalPath, action.RepoPath)
-		case ManagedOverwriteAction:
-			fmt.Fprintf(w, "  overwrite %s -> %s\n", action.RepoPath, action.LocalPath)
+			fmt.Fprintf(w, "  adopt %s -> %s%s\n", action.LocalPath, action.RepoPath, replacingSuffix(action))
+		case ManagedRestoreAction:
+			fmt.Fprintf(w, "  restore %s -> %s\n", action.RepoPath, action.LocalPath)
 		case ManagedConflictAction:
 			fmt.Fprintf(w, "  conflict %s: %s\n", action.LocalPath, action.Message)
 		case ManagedErrorAction:
@@ -145,7 +155,7 @@ func (r *Runner) applyBootstrapPlan(plan BootstrapPlan, opts BootstrapOptions) e
 
 	for _, action := range plan.allManagedActions() {
 		if action.Kind == ManagedConflictAction {
-			return fmt.Errorf("unmanaged config conflict at %s: %s", action.LocalPath, action.Message)
+			return fmt.Errorf("unmanaged conflict at %s: %s", action.LocalPath, action.Message)
 		}
 	}
 	if plan.hasRiskyManagedActions() {
@@ -184,11 +194,20 @@ func (r *Runner) applyBootstrapPlan(plan BootstrapPlan, opts BootstrapOptions) e
 func (p BootstrapPlan) hasRiskyManagedActions() bool {
 	for _, action := range p.allManagedActions() {
 		switch action.Kind {
-		case ManagedAdoptAction, ManagedOverwriteAction:
+		case ManagedAdoptAction, ManagedRestoreAction:
 			return true
 		}
 	}
 	return false
+}
+
+// replacingSuffix flags an adopt action that will discard an existing tracked
+// copy, so the plan and status views never silently overwrite repo state.
+func replacingSuffix(action ManagedAction) string {
+	if action.ReplacesRepo {
+		return " (replacing tracked copy)"
+	}
+	return ""
 }
 
 func (p BootstrapPlan) allManagedActions() []ManagedAction {

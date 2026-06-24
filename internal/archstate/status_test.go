@@ -53,10 +53,10 @@ esac
 		"native untracked: ripgrep",
 		"AUR missing: paru-bin",
 		"AUR untracked: visual-studio-code-bin",
-		"conflict gtk: use --adopt to save the current config into Archstate, or --overwrite to restore the tracked copy",
+		"conflict gtk: use --adopt to save the current config into Archstate, or --restore to install the tracked copy over it",
 		"missing mimeapps.list: needs link",
 		"ok nvim",
-		"error shell: repo target is missing",
+		`error shell: config "shell" is tracked but its saved copy is missing`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("status output missing %q:\n%s", want, out)

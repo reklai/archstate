@@ -55,7 +55,7 @@ func TestHomeAddRejectsNestedPath(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected nested home path to be rejected")
 	}
-	if !strings.Contains(err.Error(), "must be a direct child name") {
+	if !strings.Contains(err.Error(), "name cannot contain a path separator") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -220,7 +220,7 @@ esac
 	}
 }
 
-func TestBootstrapHomeOverwriteRestoresTrackedCopy(t *testing.T) {
+func TestBootstrapHomeRestoreRestoresTrackedCopy(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -243,7 +243,7 @@ esac
 	local := filepath.Join(env.home, ".zshrc")
 	writeFile(t, local, "unmanaged local copy\n")
 
-	if err := env.run("bootstrap", "--overwrite"); err != nil {
+	if err := env.run("bootstrap", "--restore"); err != nil {
 		t.Fatal(err)
 	}
 	target, err := os.Readlink(local)

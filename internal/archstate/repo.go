@@ -30,10 +30,10 @@ type repoPaths struct {
 
 func (r *Runner) discoverRepo() (repoPaths, error) {
 	if r.Cwd == "" {
-		return repoPaths{}, fmt.Errorf("current directory is unknown")
+		return repoPaths{}, fmt.Errorf("cannot determine the current directory; run archstate from an accessible directory")
 	}
 	if r.Home == "" {
-		return repoPaths{}, fmt.Errorf("home directory is unknown")
+		return repoPaths{}, fmt.Errorf("cannot determine your home directory; set $HOME and retry")
 	}
 	start, err := filepath.Abs(r.Cwd)
 	if err != nil {

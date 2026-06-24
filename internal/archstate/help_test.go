@@ -131,7 +131,8 @@ func TestBootstrapFlagHelpPrintsBootstrapTopic(t *testing.T) {
 			"Usage:\n  archstate bootstrap --dry-run",
 			"--aur-helper paru|yay",
 			"--adopt",
-			"--overwrite",
+			"--restore",
+			"--packages",
 		} {
 			if !strings.Contains(got, want) {
 				t.Fatalf("bootstrap help %v missing %q:\n%s", args, want, got)

@@ -146,7 +146,13 @@ To apply only your config/home symlinks and skip packages entirely — no `sudo`
 
 ```bash
 archstate bootstrap --dotfiles
-archstate bootstrap --dotfiles --overwrite   # let tracked copies win over stock defaults
+archstate bootstrap --dotfiles --restore   # let tracked copies win over stock defaults
+```
+
+To do the opposite — install packages now and deal with config/home later — use `--packages`. It skips config/home entirely, so an unresolved file conflict never blocks the install:
+
+```bash
+archstate bootstrap --packages
 ```
 
 If AUR packages are tracked and no helper is installed, choose one explicitly:
@@ -165,29 +171,37 @@ archstate bootstrap --aur-helper yay
 
 ## Conflict Modes
 
-Naked bootstrap fails on unmanaged config/home conflicts before package installs. That keeps package installs and file conflict resolution from being mixed together silently.
+Every managed entry has two copies: the **local** one (`~/.config/<name>` or `~/<name>`) and the **tracked** one saved in the repo. Bootstrap replaces the local copy with a symlink to the tracked copy. When a real local file already exists and is *not* that symlink, it's a **conflict** — Archstate will not guess which copy you want to keep.
 
-Dry-run to see conflicts:
+A plain `archstate bootstrap` stops on the first conflict and installs nothing, so package installs and file decisions are never mixed silently. You have three ways forward:
+
+- `archstate bootstrap --packages` — install packages now, leave the file conflicts for later.
+- Resolve entries one at a time with `archstate config add/rm` and `archstate home add/rm`.
+- Resolve every conflict at once with `--adopt` or `--restore`.
+
+Dry-run first to see exactly what each entry will do:
 
 ```bash
 archstate bootstrap --dry-run
 ```
 
-Choose the local copy:
+**Keep the local copy** with `--adopt`. It saves the current local entry into Archstate, then replaces it with a managed symlink:
 
 ```bash
 archstate bootstrap --adopt
 ```
 
-`--adopt` saves the current local config/home entry into Archstate, then replaces the local entry with a managed symlink. It works whether the tracked copy already exists or not.
+`--adopt` works whether or not a tracked copy already exists. If one does and it differs, adopting **replaces** it — the dry-run marks this `(replacing tracked copy)`, and an automatic snapshot is taken first so the old tracked copy is recoverable.
 
-Choose the tracked copy:
+**Keep the tracked copy** with `--restore`. It installs the Archstate copy over the local entry, then replaces it with a managed symlink:
 
 ```bash
-archstate bootstrap --overwrite
+archstate bootstrap --restore
 ```
 
-`--overwrite` restores the tracked Archstate copy over the local entry, then replaces the local entry with a managed symlink. It fails if the tracked copy is missing.
+`--restore` fails if no tracked copy exists yet — there's nothing to restore, so use `--adopt` instead. (`--restore` replaced the old `--overwrite` flag.)
+
+`--adopt` and `--restore` are all-or-nothing across every conflicting entry in one run; mix decisions per entry with `config`/`home add`/`rm` instead. Both auto-snapshot before touching anything.
 
 ## Safety and Recovery
 
@@ -220,7 +234,7 @@ ERROR AUR helper: paru/yay not found
 ERROR config nvim: unmanaged local entry exists
   dry-run: archstate bootstrap --dry-run
   fix keep local: archstate bootstrap --adopt
-  fix restore tracked: archstate bootstrap --overwrite
+  fix restore tracked: archstate bootstrap --restore
 
 WARN package drift: explicit packages are not tracked
   inspect: archstate status

@@ -83,11 +83,11 @@ func readStateFileStrict(path string, validate entryValidator) (map[string]strin
 			if isGeneratedHeaderLine(trimmed) {
 				continue
 			}
-			return nil, fmt.Errorf("%s:%d: unsupported comment", path, lineNo)
+			return nil, fmt.Errorf("%s:%d: unsupported comment; archstate state files are generated and only allow the standard header — undo manual edits, or run 'archstate snapshot restore <id>' to recover", path, lineNo)
 		}
 		key, value, ok := splitEntryLine(line)
 		if !ok {
-			return nil, fmt.Errorf("%s:%d: expected key=value", path, lineNo)
+			return nil, fmt.Errorf("%s:%d: expected key=value with no spaces around '='", path, lineNo)
 		}
 		if _, exists := entries[key]; exists {
 			return nil, fmt.Errorf("%s:%d: duplicate key %q", path, lineNo, key)
@@ -158,16 +158,16 @@ func validateDirectChildName(name string) error {
 		return fmt.Errorf("empty name")
 	}
 	if name != strings.TrimSpace(name) {
-		return fmt.Errorf("leading or trailing whitespace")
+		return fmt.Errorf("name has leading or trailing whitespace")
 	}
 	if name == "." || name == ".." {
-		return fmt.Errorf("reserved path segment")
+		return fmt.Errorf(`name cannot be "." or ".."`)
 	}
 	if strings.ContainsAny(name, `/\`) {
-		return fmt.Errorf("must be a direct child name")
+		return fmt.Errorf(`name cannot contain a path separator (/ or \); use a single direct child name`)
 	}
 	if strings.ContainsRune(name, 0) {
-		return fmt.Errorf("contains NUL")
+		return fmt.Errorf("name contains a NUL byte")
 	}
 	return nil
 }
