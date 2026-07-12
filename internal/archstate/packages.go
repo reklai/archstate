@@ -219,8 +219,8 @@ func (r *Runner) resolveAURHelper(preferred string) (helper string, helperPath s
 	}
 	return "", "", false, errors.New(`AUR packages are tracked, but neither paru nor yay is installed.
 Choose a helper explicitly:
-  archstate bootstrap --aur-helper paru
-  archstate bootstrap --aur-helper yay`)
+  archstate apply --aur-helper paru
+  archstate apply --aur-helper yay`)
 }
 
 func (r *Runner) resolveInstalledAURHelper(helper string) (string, error) {
@@ -280,7 +280,7 @@ func (r *Runner) bootstrapAURHelper(helper string) (string, error) {
 	}
 	helperPath, err := r.resolveInstalledAURHelper(helper)
 	if err != nil {
-		return "", fmt.Errorf("%s was built, but %s was not found in PATH or /usr/bin; check that /usr/bin is in PATH, then rerun archstate bootstrap: %w", pkg, helper, err)
+		return "", fmt.Errorf("%s was built, but %s was not found in PATH or /usr/bin; check that /usr/bin is in PATH, then rerun archstate apply: %w", pkg, helper, err)
 	}
 	return helperPath, nil
 }

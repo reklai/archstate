@@ -58,18 +58,25 @@ func homeRoot(repo repoPaths) managedRoot {
 }
 
 func planConfigs(repo repoPaths, entries map[string]string, opts BootstrapOptions) []ManagedAction {
-	return planManagedEntries(configRoot(repo), entries, opts)
+	return planManagedEntries(repo, configRoot(repo), entries, opts)
 }
 
 func planHomeFiles(repo repoPaths, entries map[string]string, opts BootstrapOptions) []ManagedAction {
-	return planManagedEntries(homeRoot(repo), entries, opts)
+	return planManagedEntries(repo, homeRoot(repo), entries, opts)
 }
 
-func planManagedEntries(root managedRoot, entries map[string]string, opts BootstrapOptions) []ManagedAction {
+func planManagedEntries(repo repoPaths, root managedRoot, entries map[string]string, opts BootstrapOptions) []ManagedAction {
 	actions := make([]ManagedAction, 0, len(entries))
 	for _, name := range sortedEntryKeys(entries) {
 		target := entries[name]
 		action := planManagedEntry(root, name, target, opts)
+		if action.Kind == ManagedAdoptAction && !opts.ForceSensitive {
+			if err := checkSensitiveName(repo, name, false); err != nil {
+				action.Kind = ManagedErrorAction
+				action.Err = err
+				action.ReplacesRepo = false
+			}
+		}
 		actions = append(actions, action)
 	}
 	return actions
@@ -289,11 +296,32 @@ func checkRepoTarget(info os.FileInfo, err error, repoPath string) error {
 }
 
 func (r *Runner) runConfigAdd(repo repoPaths, names []string) error {
-	return r.runManagedAdd(repo, configRoot(repo), repo.configPath(), names)
+	force, names, err := parseManagedAddArgs(names)
+	if err != nil {
+		return err
+	}
+	return r.runManagedAdd(repo, configRoot(repo), repo.configPath(), names, force)
 }
 
 func (r *Runner) runHomeAdd(repo repoPaths, names []string) error {
-	return r.runManagedAdd(repo, homeRoot(repo), repo.homePath(), names)
+	force, names, err := parseManagedAddArgs(names)
+	if err != nil {
+		return err
+	}
+	return r.runManagedAdd(repo, homeRoot(repo), repo.homePath(), names, force)
+}
+
+// parseManagedAddArgs accepts an optional leading --force-sensitive, then names.
+func parseManagedAddArgs(args []string) (force bool, names []string, err error) {
+	names = args
+	if len(names) > 0 && names[0] == "--force-sensitive" {
+		force = true
+		names = names[1:]
+	}
+	if err := validateNameArgs(names); err != nil {
+		return false, nil, err
+	}
+	return force, names, nil
 }
 
 // validateNameArgs guards the chained name list for add/rm: at least one name,
@@ -347,19 +375,19 @@ func (r *Runner) runConfigPreview(repo repoPaths) error {
 	if filepath.Dir(repo.path) == localRoot {
 		exclude[filepath.Base(repo.path)] = true // never offer the archstate repo itself
 	}
-	return r.runManagedPreview(configRoot(repo), repo.configPath(), localRoot, false, exclude)
+	return r.runManagedPreview(repo, configRoot(repo), repo.configPath(), localRoot, false, exclude)
 }
 
 func (r *Runner) runHomePreview(repo repoPaths) error {
 	exclude := map[string]bool{".config": true, ".cache": true, ".local": true}
-	return r.runManagedPreview(homeRoot(repo), repo.homePath(), repo.home, true, exclude)
+	return r.runManagedPreview(repo, homeRoot(repo), repo.homePath(), repo.home, true, exclude)
 }
 
 // runManagedPreview is the read-only discovery view: it lists the entries under
 // localRoot and classifies each as already tracked, addable (a real file/dir),
-// or a symlink that can't be adopted as-is. dotfilesOnly limits the scan to
-// dotfiles (used for ~, which is otherwise full of non-config entries).
-func (r *Runner) runManagedPreview(root managedRoot, configPath, localRoot string, dotfilesOnly bool, exclude map[string]bool) error {
+// sensitive (denied by default), or a symlink that can't be adopted as-is.
+// dotfilesOnly limits the scan to dotfiles (used for ~).
+func (r *Runner) runManagedPreview(repo repoPaths, root managedRoot, configPath, localRoot string, dotfilesOnly bool, exclude map[string]bool) error {
 	entries, err := readStateFileStrictOptional(configPath, validateManagedEntry)
 	if err != nil {
 		return err
@@ -392,6 +420,10 @@ func (r *Runner) runManagedPreview(root managedRoot, configPath, localRoot strin
 			fmt.Fprintf(r.Stdout, "  %-8s %s  (replace with a real file or dir to add)\n", "symlink", name)
 			continue
 		}
+		if isSensitiveName(repo, name) {
+			fmt.Fprintf(r.Stdout, "  %-8s %s  (pass --force-sensitive to track)\n", "deny", name)
+			continue
+		}
 		fmt.Fprintf(r.Stdout, "  %-8s %s\n", "add", name)
 		addable++
 	}
@@ -406,12 +438,9 @@ func (r *Runner) runManagedPreview(root managedRoot, configPath, localRoot strin
 	return nil
 }
 
-func (r *Runner) runManagedAdd(repo repoPaths, root managedRoot, configPath string, names []string) error {
-	if err := validateNameArgs(names); err != nil {
-		return err
-	}
+func (r *Runner) runManagedAdd(repo repoPaths, root managedRoot, configPath string, names []string, forceSensitive bool) error {
 	return r.withRepoLock(repo, root.Kind+" add", func() error {
-		return r.runManagedAddLocked(repo, root, configPath, names)
+		return r.runManagedAddLocked(repo, root, configPath, names, forceSensitive)
 	})
 }
 
@@ -430,10 +459,13 @@ type managedAddStep struct {
 	action    managedAddAction
 }
 
-func (r *Runner) runManagedAddLocked(repo repoPaths, root managedRoot, configPath string, names []string) error {
+func (r *Runner) runManagedAddLocked(repo repoPaths, root managedRoot, configPath string, names []string, forceSensitive bool) error {
 	for _, name := range names {
 		if err := validateDirectChildName(name); err != nil {
 			return fmt.Errorf("invalid %s name %q: %w", root.Kind, name, err)
+		}
+		if err := checkSensitiveName(repo, name, forceSensitive); err != nil {
+			return err
 		}
 	}
 	entries, err := readStateFileStrictOptional(configPath, validateManagedEntry)
@@ -506,7 +538,7 @@ func planManagedAdd(root managedRoot, name string) (managedAddStep, error) {
 			return step, nil
 		}
 		if repoExists {
-			return step, fmt.Errorf("cannot add %q: a different tracked copy already exists at %s; run 'archstate bootstrap --adopt' to replace it with the local %s, or 'archstate bootstrap --restore' to install the tracked copy", name, step.repoPath, root.Kind)
+			return step, fmt.Errorf("cannot add %q: a different tracked copy already exists at %s; run 'archstate apply --adopt' to replace it with the local %s, or 'archstate apply --restore' to install the tracked copy", name, step.repoPath, root.Kind)
 		}
 		if localInfo.Mode()&os.ModeSymlink != 0 {
 			return step, fmt.Errorf("cannot add %q: %s is a symlink%s, not a real file or dir; replace it with a real file or dir first", name, step.localPath, symlinkTargetHint(step.localPath))
@@ -541,8 +573,44 @@ func (r *Runner) runManagedRemove(repo repoPaths, root managedRoot, configPath s
 		return err
 	}
 	return r.withRepoLock(repo, root.Kind+" rm", func() error {
-		return r.runManagedRemoveLocked(repo, root, configPath, names)
+		return r.untrackManagedRootsLocked(repo, []managedUntrackBatch{{
+			root:       root,
+			configPath: configPath,
+			names:      names,
+		}})
 	})
+}
+
+// untrackManagedEntries stops managing the given config and home names in one
+// locked operation with a single auto-snapshot (used by the managed TUI).
+func (r *Runner) untrackManagedEntries(repo repoPaths, configNames, homeNames []string) error {
+	batches := make([]managedUntrackBatch, 0, 2)
+	if len(configNames) > 0 {
+		batches = append(batches, managedUntrackBatch{
+			root:       configRoot(repo),
+			configPath: repo.configPath(),
+			names:      configNames,
+		})
+	}
+	if len(homeNames) > 0 {
+		batches = append(batches, managedUntrackBatch{
+			root:       homeRoot(repo),
+			configPath: repo.homePath(),
+			names:      homeNames,
+		})
+	}
+	if len(batches) == 0 {
+		return nil
+	}
+	return r.withRepoLock(repo, "managed untrack", func() error {
+		return r.untrackManagedRootsLocked(repo, batches)
+	})
+}
+
+type managedUntrackBatch struct {
+	root       managedRoot
+	configPath string
+	names      []string
 }
 
 type managedRemoveStep struct {
@@ -551,63 +619,88 @@ type managedRemoveStep struct {
 	repoPath  string
 }
 
-func (r *Runner) runManagedRemoveLocked(repo repoPaths, root managedRoot, configPath string, names []string) error {
-	for _, name := range names {
-		if err := validateDirectChildName(name); err != nil {
-			return fmt.Errorf("invalid %s name %q: %w", root.Kind, name, err)
-		}
-	}
-	entries, err := readStateFileStrictOptional(configPath, validateManagedEntry)
-	if err != nil {
-		return err
-	}
+type managedUntrackPlan struct {
+	configPath string
+	entries    map[string]string
+	steps      []managedRemoveStep
+}
 
-	// Phase 1: classify. Untracked names are reported and skipped; a symlink
-	// repo target is a hard error that aborts before any snapshot or mutation.
-	steps := make([]managedRemoveStep, 0, len(names))
-	for _, name := range names {
-		target, ok := entries[name]
-		if !ok {
-			fmt.Fprintf(r.Stdout, "%s is not tracked\n", name)
-			continue
+func (r *Runner) untrackManagedRootsLocked(repo repoPaths, batches []managedUntrackBatch) error {
+	plans := make([]managedUntrackPlan, 0, len(batches))
+	for _, batch := range batches {
+		for _, name := range batch.names {
+			if err := validateDirectChildName(name); err != nil {
+				return fmt.Errorf("invalid %s name %q: %w", batch.root.Kind, name, err)
+			}
 		}
-		repoPath := root.RepoPath(target)
-		repoInfo, repoErr := os.Lstat(repoPath)
-		if err := checkRepoTarget(repoInfo, repoErr, repoPath); err != nil {
+		entries, err := readStateFileStrictOptional(batch.configPath, validateManagedEntry)
+		if err != nil {
 			return err
 		}
-		steps = append(steps, managedRemoveStep{name: name, localPath: root.LocalPath(name), repoPath: repoPath})
+
+		// Phase 1: classify. Untracked names are reported and skipped; a symlink
+		// repo target is a hard error that aborts before any snapshot or mutation.
+		steps := make([]managedRemoveStep, 0, len(batch.names))
+		for _, name := range batch.names {
+			target, ok := entries[name]
+			if !ok {
+				fmt.Fprintf(r.Stdout, "%s is not tracked\n", name)
+				continue
+			}
+			repoPath := batch.root.RepoPath(target)
+			repoInfo, repoErr := os.Lstat(repoPath)
+			if err := checkRepoTarget(repoInfo, repoErr, repoPath); err != nil {
+				return err
+			}
+			steps = append(steps, managedRemoveStep{
+				name:      name,
+				localPath: batch.root.LocalPath(name),
+				repoPath:  repoPath,
+			})
+		}
+		if len(steps) == 0 {
+			continue
+		}
+		plans = append(plans, managedUntrackPlan{
+			configPath: batch.configPath,
+			entries:    entries,
+			steps:      steps,
+		})
 	}
-	if len(steps) == 0 {
+	if len(plans) == 0 {
 		return nil
 	}
 
-	// Phase 2: one snapshot for the batch, commit the state-file change, then
-	// the filesystem cleanup. Committing state before mutating files means
-	// config.conf never references a target that has already been removed.
+	// Phase 2: one snapshot for the whole multi-root batch, commit state-file
+	// changes, then filesystem cleanup. Committing state before mutating files
+	// means conf never references a target that has already been removed.
 	if _, err := r.createAutoSnapshot(repo); err != nil {
 		return err
 	}
-	for _, step := range steps {
-		delete(entries, step.name)
-	}
-	if err := writeStateFile(configPath, entries); err != nil {
-		return err
-	}
-	for _, step := range steps {
-		if isCorrectSymlink(step.localPath, step.repoPath) {
-			if pathExists(step.repoPath) {
-				if err := restoreManagedSymlink(step.localPath, step.repoPath); err != nil {
-					return err
-				}
-			} else if err := os.Remove(step.localPath); err != nil {
-				return err
-			}
+	for i := range plans {
+		for _, step := range plans[i].steps {
+			delete(plans[i].entries, step.name)
 		}
-		if err := os.RemoveAll(step.repoPath); err != nil {
+		if err := writeStateFile(plans[i].configPath, plans[i].entries); err != nil {
 			return err
 		}
-		fmt.Fprintf(r.Stdout, "removed %s\n", step.name)
+	}
+	for _, plan := range plans {
+		for _, step := range plan.steps {
+			if isCorrectSymlink(step.localPath, step.repoPath) {
+				if pathExists(step.repoPath) {
+					if err := restoreManagedSymlink(step.localPath, step.repoPath); err != nil {
+						return err
+					}
+				} else if err := os.Remove(step.localPath); err != nil {
+					return err
+				}
+			}
+			if err := os.RemoveAll(step.repoPath); err != nil {
+				return err
+			}
+			fmt.Fprintf(r.Stdout, "removed %s\n", step.name)
+		}
 	}
 	return nil
 }

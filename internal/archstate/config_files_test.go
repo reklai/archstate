@@ -305,8 +305,8 @@ esac
 		"ERROR config nvim: managed symlink is missing",
 		"local: " + filepath.Join(env.home, ".config", "nvim"),
 		"tracked: " + repoTarget,
-		"dry-run: archstate bootstrap --dry-run",
-		"fix: archstate bootstrap",
+		"dry-run: archstate apply --dry-run",
+		"fix: archstate apply",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("doctor output missing %q:\n%s", want, out)
@@ -344,8 +344,8 @@ esac
 	out := env.stdout.String()
 	for _, want := range []string{
 		"ERROR AUR helper:",
-		"fix: archstate bootstrap --aur-helper paru",
-		"fix: archstate bootstrap --aur-helper yay",
+		"fix: archstate apply --aur-helper paru",
+		"fix: archstate apply --aur-helper yay",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("doctor output missing %q:\n%s", want, out)
@@ -382,7 +382,7 @@ esac
 	out := env.stdout.String()
 	for _, want := range []string{
 		"WARN package drift: 1 explicit packages are not tracked",
-		"inspect: archstate status",
+		"inspect: archstate check",
 		"accept current machine: archstate sync",
 	} {
 		if !strings.Contains(out, want) {

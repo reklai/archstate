@@ -69,8 +69,8 @@ esac
 	out := env.stdout.String()
 	for _, want := range []string{
 		"AUR helper error: AUR packages are tracked, but neither paru nor yay is installed.",
-		"archstate bootstrap --aur-helper paru",
-		"archstate bootstrap --aur-helper yay",
+		"archstate apply --aur-helper paru",
+		"archstate apply --aur-helper yay",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("preview output missing %q:\n%s", want, out)
@@ -83,8 +83,8 @@ esac
 	}
 	for _, want := range []string{
 		"AUR packages are tracked, but neither paru nor yay is installed.",
-		"archstate bootstrap --aur-helper paru",
-		"archstate bootstrap --aur-helper yay",
+		"archstate apply --aur-helper paru",
+		"archstate apply --aur-helper yay",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("bootstrap error missing %q:\n%v", want, err)

@@ -6,7 +6,7 @@ Archstate attempts to reproduce your personal Arch-based machine setup from expl
 explicit pacman packages + explicit AUR packages + managed config/home symlinks
 ```
 
-State lives in `~/.config/archstate-src` as plain files. `bootstrap` installs missing packages, uses `paru` or `yay` for AUR packages, and recreates managed symlinks.
+State lives in `~/.config/archstate-src` as plain files. `apply` installs missing packages, uses `paru` or `yay` for AUR packages, and recreates managed symlinks.
 
 ## Requirements
 
@@ -14,7 +14,7 @@ State lives in `~/.config/archstate-src` as plain files. `bootstrap` installs mi
 - `git`
 - Go, for building from source.
 - `pacman`
-- Optional: `paru` or `yay` for AUR packages. If missing, bootstrap can install one explicitly.
+- Optional: `paru` or `yay` for AUR packages. If missing, apply can install one explicitly.
 - Optional: systemd user services for the auto-sync timer.
 
 ## Quick Start
@@ -44,7 +44,18 @@ After installation, the command should work from anywhere:
 archstate help
 ```
 
-## Start Tracking This Machine
+## Everyday Workflow
+
+Six commands cover the common loop: set up, capture, check, apply.
+
+| Command | Role |
+|---------|------|
+| `init` | Create the repo and install the CLI |
+| `sync` | Capture explicit packages from this machine |
+| `track` | Add/list/preview/rm config & home (TUI untrack with no args) |
+| `check` | Show drift/health; optional `--exit` / `--coverage` |
+| `apply` | Install missing packages and recreate managed symlinks |
+| `snapshot` | Save/restore repo-state snapshots |
 
 Record current explicit packages:
 
@@ -55,24 +66,31 @@ archstate sync
 Track selected config and home entries:
 
 ```bash
-archstate config add nvim
-archstate config add mimeapps.list
-archstate home add .zshrc
-archstate home add .profile
+archstate track config add nvim
+archstate track config add mimeapps.list
+archstate track home add .zshrc
+archstate track home add .profile
+```
+
+Sensitive names (`.ssh`, `.gnupg`, `gcloud`, and others, plus any names listed in optional `sensitive.deny`) are denied by default. Preview labels them `deny`. Override only when intentional:
+
+```bash
+archstate track home add --force-sensitive .ssh
+archstate apply --adopt --force-sensitive
 ```
 
 List what is currently tracked:
 
 ```bash
-archstate config list
-archstate home list
+archstate track config list
+archstate track home list
 ```
 
-See what is available to track in those areas (tracked vs. addable vs. not-adoptable):
+See what is available to track:
 
 ```bash
-archstate config preview
-archstate home preview
+archstate track config preview
+archstate track home preview
 ```
 
 Save a baseline:
@@ -81,20 +99,15 @@ Save a baseline:
 archstate snapshot save baseline
 ```
 
-Inspect what Archstate sees:
+Inspect drift and health:
 
 ```bash
-archstate status
-archstate doctor
+archstate check
+archstate check --exit
+archstate check --coverage
 ```
 
-Remove explicit packages through the interactive TUI:
-
-```bash
-archstate packages
-```
-
-`packages` syncs first, opens a fuzzy-search removal UI with Native and AUR sections, shows a scrollable review of the marked packages (where you can still unmark before committing), runs one confirmed `sudo pacman -Rns ...` command, then syncs package state again after successful removal.
+`check` prints package/managed drift plus doctor-style health. **Default check is informational**: ERROR/WARN lines may appear and the exit code is still 0. Only `--exit` (or the `verify` alias) is a completeness gate for scripts. Add `--strict-packages` with `--exit` to also fail on untracked explicit packages. `--coverage` also prints the coverage report after drift/health.
 
 `sync` treats the current machine's explicit packages as source of truth:
 
@@ -133,62 +146,62 @@ cd ~/.config/archstate-src
 Dry-run first:
 
 ```bash
-archstate bootstrap --dry-run
+archstate apply --dry-run
 ```
 
 Apply:
 
 ```bash
-archstate bootstrap
+archstate apply
 ```
 
 To apply only your config/home symlinks and skip packages entirely — no `sudo`, no `pacman`, works on any machine — use `--dotfiles`:
 
 ```bash
-archstate bootstrap --dotfiles
-archstate bootstrap --dotfiles --restore   # let tracked copies win over stock defaults
+archstate apply --dotfiles
+archstate apply --dotfiles --restore   # let tracked copies win over stock defaults
 ```
 
 To do the opposite — install packages now and deal with config/home later — use `--packages`. It skips config/home entirely, so an unresolved file conflict never blocks the install:
 
 ```bash
-archstate bootstrap --packages
+archstate apply --packages
 ```
 
 If AUR packages are tracked and no helper is installed, choose one explicitly:
 
 ```bash
-archstate bootstrap --aur-helper paru
+archstate apply --aur-helper paru
 ```
 
 or:
 
 ```bash
-archstate bootstrap --aur-helper yay
+archstate apply --aur-helper yay
 ```
 
 `paru` maps to `paru-bin`; `yay` maps to `yay-bin` for helper bootstrap.
 
 ## Conflict Modes
 
-Every managed entry has two copies: the **local** one (`~/.config/<name>` or `~/<name>`) and the **tracked** one saved in the repo. Bootstrap replaces the local copy with a symlink to the tracked copy. When a real local file already exists and is *not* that symlink, it's a **conflict** — Archstate will not guess which copy you want to keep.
+Every managed entry has two copies: the **local** one (`~/.config/<name>` or `~/<name>`) and the **tracked** one saved in the repo. Apply replaces the local copy with a symlink to the tracked copy. When a real local file already exists and is *not* that symlink, it's a **conflict** — Archstate will not guess which copy you want to keep.
 
-A plain `archstate bootstrap` stops on the first conflict and installs nothing, so package installs and file decisions are never mixed silently. You have three ways forward:
+A plain `archstate apply` stops on the first conflict and installs nothing, so package installs and file decisions are never mixed silently. You have three ways forward:
 
-- `archstate bootstrap --packages` — install packages now, leave the file conflicts for later.
-- Resolve entries one at a time with `archstate config add/rm` and `archstate home add/rm`.
+- `archstate apply --packages` — install packages now, leave the file conflicts for later.
+- Resolve entries one at a time with `archstate track config add/rm` and `archstate track home add/rm`.
 - Resolve every conflict at once with `--adopt` or `--restore`.
 
 Dry-run first to see exactly what each entry will do:
 
 ```bash
-archstate bootstrap --dry-run
+archstate apply --dry-run
 ```
 
 **Keep the local copy** with `--adopt`. It saves the current local entry into Archstate, then replaces it with a managed symlink:
 
 ```bash
-archstate bootstrap --adopt
+archstate apply --adopt
 ```
 
 `--adopt` works whether or not a tracked copy already exists. If one does and it differs, adopting **replaces** it — the dry-run marks this `(replacing tracked copy)`, and an automatic snapshot is taken first so the old tracked copy is recoverable.
@@ -196,19 +209,19 @@ archstate bootstrap --adopt
 **Keep the tracked copy** with `--restore`. It installs the Archstate copy over the local entry, then replaces it with a managed symlink:
 
 ```bash
-archstate bootstrap --restore
+archstate apply --restore
 ```
 
 `--restore` fails if no tracked copy exists yet — there's nothing to restore, so use `--adopt` instead. (`--restore` replaced the old `--overwrite` flag.)
 
-`--adopt` and `--restore` are all-or-nothing across every conflicting entry in one run; mix decisions per entry with `config`/`home add`/`rm` instead. Both auto-snapshot before touching anything.
+`--adopt` and `--restore` are all-or-nothing across every conflicting entry in one run; mix decisions per entry with `track config`/`track home` add/`rm` instead. Both auto-snapshot before touching anything.
 
 ## Safety and Recovery
 
-`status` shows drift without changing anything:
+`check` shows drift and health without changing anything:
 
 ```bash
-archstate status
+archstate check
 ```
 
 It reports:
@@ -216,28 +229,25 @@ It reports:
 - tracked native/AUR packages that are missing
 - explicitly installed native/AUR packages that are not tracked
 - managed config and home entries as ok, missing, conflict, or error
+- environment and repo health (OK/WARN/ERROR)
 
-`doctor` checks, explains, and prescribes:
+Use `check --exit` as the scriptable completeness gate after apply or before trusting a clone.
 
-```bash
-archstate doctor
-```
-
-Example shape:
+Example doctor-style shape (included in `check`, or via the `doctor` alias):
 
 ```text
 OK repo: ~/.config/archstate-src
 ERROR AUR helper: paru/yay not found
-  fix: archstate bootstrap --aur-helper paru
-  fix: archstate bootstrap --aur-helper yay
+  fix: archstate apply --aur-helper paru
+  fix: archstate apply --aur-helper yay
 
 ERROR config nvim: unmanaged local entry exists
-  dry-run: archstate bootstrap --dry-run
-  fix keep local: archstate bootstrap --adopt
-  fix restore tracked: archstate bootstrap --restore
+  dry-run: archstate apply --dry-run
+  fix keep local: archstate apply --adopt
+  fix restore tracked: archstate apply --restore
 
 WARN package drift: explicit packages are not tracked
-  inspect: archstate status
+  inspect: archstate check
   accept current machine: archstate sync
 ```
 
@@ -246,6 +256,7 @@ Snapshots capture Archstate repo state only:
 ```text
 pacman.conf
 aur.conf
+packages.ignore
 config.conf
 home.conf
 config/
@@ -267,7 +278,44 @@ Snapshots do not capture installed packages, pacman cache, system files, or the 
 
 Repo-state mutations take a per-repo lock so two Archstate commands do not rewrite state at the same time. Archstate does not require a clean Git worktree before changing its own state. Operations that rewrite existing tracked state create an automatic snapshot first, so you can inspect or restore the previous state without committing before every command. The optional auto-sync timer runs `sync --commit` so background package-state rewrites are committed instead of left as local Git changes.
 
-## Optional Auto-Sync
+## Advanced
+
+### Aliases (still work)
+
+Older command names remain permanent legacy entry points. They are **not always identical** to a single primary flag combination (output shape may differ):
+
+| Alias | Relationship to primary surface |
+|-------|----------------------------------|
+| `status` | Drift listing only (subset of `check`; no doctor section) |
+| `verify` | Exit-code gate with the same checks as `check --exit`, but compact `verify:` messaging only |
+| `doctor` | Health report only; fails on ERROR (primary `check` prints this section but stays exit 0 without `--exit`) |
+| `coverage` | Coverage report only (subset of `check --coverage`, which also prints drift/health first) |
+| `config` | `track config` |
+| `home` | `track home` |
+| `managed` | bare `track` (untrack TUI) |
+| `bootstrap` | `apply` (same flags and behavior) |
+
+### Package tools
+
+Remove explicit packages through the interactive TUI:
+
+```bash
+archstate packages
+```
+
+`packages` syncs first, opens a fuzzy-search removal UI with Native and AUR sections, shows a scrollable review of the marked packages (where you can still unmark before committing), runs one confirmed `sudo pacman -Rns ...` command, then syncs package state again after successful removal.
+
+Host-specific or ephemeral packages can be left installed without tracking them:
+
+```bash
+archstate packages ignore add linux-zen nvidia
+archstate packages ignore list
+archstate packages ignore rm nvidia
+```
+
+Ignored names are written to `packages.ignore`. `sync` never records them, `check`/`doctor`/`verify --strict-packages` do not treat them as untracked, and `apply` will not install them even if an older commit still lists them.
+
+### Optional auto-sync
 
 Manual `archstate sync` is the core workflow. If you want Archstate to keep package state fresh automatically, install the optional systemd user timer:
 
@@ -312,6 +360,17 @@ archstate service disable
 archstate service uninstall
 ```
 
+### CLI install only
+
+To update the binary without touching the repo:
+
+```bash
+archstate install
+archstate install --add-to-path
+```
+
+Prefer `init` for first-time setup.
+
 ## Command Reference
 
 Top-level help:
@@ -323,25 +382,28 @@ archstate help
 Detailed command help:
 
 ```bash
-archstate help bootstrap
+archstate help apply
 archstate snapshot --help
-archstate config -h
+archstate track config -h
 ```
 
-Command map:
+Primary commands:
 
 ```text
 init       Create repo state and install archstate to ~/.local/bin.
-install    Install or update archstate in ~/.local/bin.
-sync       Rewrite package state from explicit pacman/AUR packages.
-packages   Fuzzy-select explicit packages to remove.
-status     Show tracked state vs current machine drift.
-config     Manage direct children of ~/.config.
-home       Manage direct children of ~.
+sync       Capture explicit packages from this machine.
+track      Add/list/preview/rm config & home (TUI untrack with no args).
+check      Show drift/health; --exit / --strict-packages for scripts; --coverage.
+apply      Install missing packages and recreate managed symlinks.
 snapshot   Save, list, restore, or remove repo-state snapshots.
-bootstrap  Install missing packages and recreate managed symlinks.
-doctor     Diagnose repo health and print concrete fix commands.
+```
+
+Also:
+
+```text
+packages   Fuzzy-select explicit packages to remove; manage package ignores.
 service    Manage the optional systemd user sync timer.
+install    Install or update archstate in ~/.local/bin.
 ```
 
 ## Managed Files
@@ -349,15 +411,23 @@ service    Manage the optional systemd user sync timer.
 Config entries are direct children of `~/.config`:
 
 ```bash
-archstate config add nvim kitty ghostty   # add accepts multiple names
-archstate config list
-archstate config preview
-archstate config rm nvim
+archstate track config add nvim kitty ghostty   # add accepts multiple names
+archstate track config list
+archstate track config preview
+archstate track config rm nvim
 ```
 
 `add` and `rm` accept multiple names and are all-or-nothing: every name is validated first, so one un-addable entry aborts the batch before any file is moved.
 
-`config preview` scans `~/.config` and labels each direct child `tracked`, `add` (a real file/dir you can adopt), or `symlink` (replace with a real file first). `home preview` does the same for `~`, limited to dotfiles and skipping `.config`/`.cache`/`.local`.
+For bulk **untrack** (stop managing, restore local copies — not delete files), use the interactive TUI:
+
+```bash
+archstate track
+```
+
+It mirrors the packages TUI: Config and Home sections, fuzzy search, mark, review, confirm. One auto-snapshot covers the whole batch. Prefer `track config rm` / `track home rm` when you already know the names or need a scriptable path.
+
+`track config preview` scans `~/.config` and labels each direct child `tracked`, `add` (a real file/dir you can adopt), `deny` (sensitive; needs `--force-sensitive`), or `symlink` (replace with a real file first). `track home preview` does the same for `~`, limited to dotfiles and skipping `.config`/`.cache`/`.local`.
 
 Mapping:
 
@@ -368,10 +438,10 @@ Mapping:
 Home entries are direct children of `~`:
 
 ```bash
-archstate home add .zshrc .profile   # add accepts multiple names
-archstate home list
-archstate home preview
-archstate home rm .zshrc
+archstate track home add .zshrc .profile   # add accepts multiple names
+archstate track home list
+archstate track home preview
+archstate track home rm .zshrc
 ```
 
 Mapping:
@@ -396,8 +466,10 @@ Use direct entries only. This keeps the model easy to inspect and hard to misuse
   .archstate-root
   pacman.conf
   aur.conf
+  packages.ignore
   config.conf
   home.conf
+  sensitive.deny          # optional custom deny names
   config/
     nvim/
     mimeapps.list
@@ -426,7 +498,9 @@ Files are machine-formatted and alphabetized by key. `sync` treats installed exp
 - No hidden shell edits; PATH setup via `install --add-to-path` is explicit and opt-in.
 - No daemon in the core workflow; auto-sync is an opt-in systemd user timer.
 - Package removal is explicit and confirmed; Archstate delegates removal to `sudo pacman -Rns` and records the result via `sync`.
-- Reproducibility means installing missing explicit packages and recreating managed config/home symlinks.
+- Package ignores and sensitive-name denies keep intent intentional; force flags are opt-in and loud.
+- Reproducibility means installing missing explicit packages (minus ignores) and recreating managed config/home symlinks.
+- `check --exit` (alias: `verify`) is the scriptable completeness gate after apply or before trusting a clone.
 
 ## License
 

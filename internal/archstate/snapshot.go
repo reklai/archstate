@@ -224,6 +224,7 @@ func snapshotStateNames() []string {
 	return []string{
 		pacmanConfFile,
 		aurConfFile,
+		packagesIgnoreFile,
 		configConfFile,
 		homeConfFile,
 		configDirName,

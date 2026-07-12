@@ -15,12 +15,13 @@ const (
 // Repo-state component names. snapshotStateNames must list exactly these
 // (minus the marker); TestSnapshotStateNamesCoversRepoState enforces it.
 const (
-	pacmanConfFile = "pacman.conf"
-	aurConfFile    = "aur.conf"
-	configConfFile = "config.conf"
-	homeConfFile   = "home.conf"
-	configDirName  = "config"
-	homeDirName    = "home"
+	pacmanConfFile     = "pacman.conf"
+	aurConfFile        = "aur.conf"
+	packagesIgnoreFile = "packages.ignore"
+	configConfFile     = "config.conf"
+	homeConfFile       = "home.conf"
+	configDirName      = "config"
+	homeDirName        = "home"
 )
 
 type repoPaths struct {
@@ -84,6 +85,10 @@ func (r repoPaths) pacmanPath() string {
 
 func (r repoPaths) aurPath() string {
 	return filepath.Join(r.path, aurConfFile)
+}
+
+func (r repoPaths) packagesIgnorePath() string {
+	return filepath.Join(r.path, packagesIgnoreFile)
 }
 
 func (r repoPaths) configPath() string {

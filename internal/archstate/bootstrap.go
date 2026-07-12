@@ -8,12 +8,13 @@ import (
 )
 
 type BootstrapOptions struct {
-	DryRun    bool
-	DotFiles  bool
-	Packages  bool
-	Adopt     bool
-	Restore   bool
-	AURHelper string
+	DryRun         bool
+	DotFiles       bool
+	Packages       bool
+	Adopt          bool
+	Restore        bool
+	ForceSensitive bool
+	AURHelper      string
 }
 
 type BootstrapPlan struct {
@@ -51,6 +52,10 @@ func (r *Runner) buildBootstrapPlan(repo repoPaths, opts BootstrapOptions) (Boot
 	// --dotfiles is the user-space-only path: it never reads package files,
 	// queries pacman, or resolves an AUR helper, so it needs no sudo or pacman.
 	if !opts.DotFiles {
+		ignored, err := r.loadPackageIgnoreSet(repo)
+		if err != nil {
+			return BootstrapPlan{}, err
+		}
 		nativeState, err := readStateFileStrictOptional(repo.pacmanPath(), validatePackageEntry)
 		if err != nil {
 			return BootstrapPlan{}, err
@@ -59,6 +64,8 @@ func (r *Runner) buildBootstrapPlan(repo repoPaths, opts BootstrapOptions) (Boot
 		if err != nil {
 			return BootstrapPlan{}, err
 		}
+		nativeState = filterIgnoredState(nativeState, ignored)
+		aurState = filterIgnoredState(aurState, ignored)
 		installed, err := r.queryPackageNames("pacman", "-Qq")
 		if err != nil {
 			return BootstrapPlan{}, err
