@@ -197,7 +197,7 @@ func TestConfigRemoveCreatesAutoSnapshotBeforeRemoval(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := env.run("config", "rm", "nvim"); err != nil {
+	if err := env.run("track", "config", "rm", "nvim"); err != nil {
 		t.Fatal(err)
 	}
 

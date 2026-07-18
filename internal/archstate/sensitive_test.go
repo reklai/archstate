@@ -12,7 +12,7 @@ func TestHomeAddDeniesSensitiveByDefault(t *testing.T) {
 	env.initRepo(t)
 	writeFile(t, filepath.Join(env.home, ".ssh", "id_ed25519"), "secret\n")
 
-	err := env.run("home", "add", ".ssh")
+	err := env.run("track", "home", "add", ".ssh")
 	if err == nil {
 		t.Fatal("expected sensitive deny")
 	}
@@ -29,7 +29,7 @@ func TestHomeAddForceSensitiveAllowsDenyList(t *testing.T) {
 	env.initRepo(t)
 	writeFile(t, filepath.Join(env.home, ".ssh", "config"), "Host *\n")
 
-	if err := env.run("home", "add", "--force-sensitive", ".ssh"); err != nil {
+	if err := env.run("track", "home", "add", "--force-sensitive", ".ssh"); err != nil {
 		t.Fatalf("force-sensitive add: %v", err)
 	}
 	if !isCorrectSymlink(filepath.Join(env.home, ".ssh"), filepath.Join(env.repo, "home", ".ssh")) {
@@ -43,7 +43,7 @@ func TestHomePreviewLabelsSensitiveAsDeny(t *testing.T) {
 	writeFile(t, filepath.Join(env.home, ".ssh", "config"), "Host *\n")
 	writeFile(t, filepath.Join(env.home, ".profile"), "export PATH\n")
 
-	if err := env.run("home", "preview"); err != nil {
+	if err := env.run("track", "home", "preview"); err != nil {
 		t.Fatal(err)
 	}
 	out := env.stdout.String()
@@ -61,7 +61,7 @@ func TestCustomSensitiveDenyFile(t *testing.T) {
 	writeFile(t, filepath.Join(env.repo, sensitiveDenyFile), "custom-secret\n")
 	writeFile(t, filepath.Join(env.home, ".config", "custom-secret"), "nope\n")
 
-	err := env.run("config", "add", "custom-secret")
+	err := env.run("track", "config", "add", "custom-secret")
 	if err == nil {
 		t.Fatal("expected custom deny")
 	}
@@ -70,7 +70,7 @@ func TestCustomSensitiveDenyFile(t *testing.T) {
 	}
 }
 
-func TestBootstrapAdoptDeniesSensitive(t *testing.T) {
+func TestApplyAdoptDeniesSensitive(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -83,9 +83,9 @@ esac
 	// tracked copy missing, local real dir → adopt path
 	writeFile(t, filepath.Join(env.home, ".ssh", "config"), "Host *\n")
 
-	err := env.run("bootstrap", "--dotfiles", "--adopt")
+	err := env.run("apply", "--dotfiles", "--adopt")
 	if err == nil {
-		t.Fatal("expected bootstrap adopt to fail on sensitive")
+		t.Fatal("expected apply adopt to fail on sensitive")
 	}
 	if !strings.Contains(err.Error(), "sensitive") {
 		t.Fatalf("unexpected error: %v", err)

@@ -21,20 +21,14 @@ func TestHelpAliasesPrintCanonicalHelp(t *testing.T) {
 		"  init       Create repo state and install archstate to ~/.local/bin.",
 		"  sync       Capture explicit packages from this machine.",
 		"  track      Add/list/preview/rm config & home (TUI untrack with no args).",
-		"  check      Show drift/health; --exit / --strict-packages for scripts; --coverage.",
+		"  check      Show drift/health; --exit / --gate for scripts; subset views available.",
 		"  apply      Install missing packages and recreate managed symlinks.",
 		"  snapshot   Save, list, restore, or remove repo-state snapshots.",
 		"Also:",
-		"  packages   Fuzzy-select explicit packages to remove; manage package ignores.",
+		"  uninstall  Fuzzy-select explicit packages to remove.",
+		"  ignore     Manage the package ignore list.",
 		"  service    Manage the optional systemd user sync timer.",
 		"  install    Install or update archstate in ~/.local/bin.",
-		"Aliases (still work; legacy entry points, not always identical output):",
-		"  status     drift listing only (subset of check)",
-		"  verify     exit-code gate (same checks as check --exit; compact messaging)",
-		"  doctor     health report only (fails on ERROR)",
-		"  coverage   coverage report only",
-		"  config, home, managed  -> track",
-		"  bootstrap              -> apply",
 		"archstate apply --dry-run",
 		"Command help:\n  archstate help <command>",
 		"archstate <command> --help",
@@ -75,29 +69,30 @@ func TestCommandTopicHelp(t *testing.T) {
 		}
 	}
 
-	if err := env.run("help", "config"); err != nil {
+	if err := env.run("help", "uninstall"); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"Usage:\n  archstate config add [--force-sensitive] <name>...",
-		"archstate config list",
-		"list        Show currently tracked config entries.",
+		"Usage:\n  archstate uninstall",
+		"fuzzy-search Native or AUR packages",
+		"archstate help ignore",
 	} {
 		if !strings.Contains(env.stdout.String(), want) {
-			t.Fatalf("config help missing %q:\n%s", want, env.stdout.String())
+			t.Fatalf("uninstall help missing %q:\n%s", want, env.stdout.String())
 		}
 	}
 
-	if err := env.run("help", "home"); err != nil {
+	if err := env.run("help", "ignore"); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"Usage:\n  archstate home add [--force-sensitive] <name>...",
-		"archstate home list",
-		"list        Show currently tracked home entries.",
+		"Usage:\n  archstate ignore add <pkg>...",
+		"archstate ignore rm <pkg>...",
+		"archstate ignore list",
+		"list       Show ignored package names.",
 	} {
 		if !strings.Contains(env.stdout.String(), want) {
-			t.Fatalf("home help missing %q:\n%s", want, env.stdout.String())
+			t.Fatalf("ignore help missing %q:\n%s", want, env.stdout.String())
 		}
 	}
 
@@ -107,7 +102,7 @@ func TestCommandTopicHelp(t *testing.T) {
 	for _, want := range []string{
 		"Usage:\n  archstate apply --dry-run",
 		"--aur-helper paru|yay",
-		"Alias: bootstrap",
+		"archstate apply --restore",
 	} {
 		if !strings.Contains(env.stdout.String(), want) {
 			t.Fatalf("apply help missing %q:\n%s", want, env.stdout.String())
@@ -118,15 +113,11 @@ func TestCommandTopicHelp(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"Usage:\n  archstate check [--coverage] [--exit]",
+		"Usage:\n  archstate check [--status|--doctor|--coverage] [--exit|--gate]",
 		"--strict-packages",
 		"--coverage",
+		"--gate",
 		"Default check is informational",
-		"Aliases (legacy subsets; not identical to flag combinations above):",
-		"  status     drift listing only",
-		"  verify     exit-code gate with compact verify: ok/failed messaging",
-		"  doctor     doctor-style health only (fails on ERROR)",
-		"  coverage   coverage report only",
 	} {
 		if !strings.Contains(env.stdout.String(), want) {
 			t.Fatalf("check help missing %q:\n%s", want, env.stdout.String())
@@ -139,10 +130,7 @@ func TestCommandTopicHelp(t *testing.T) {
 	for _, want := range []string{
 		"archstate track config add|list|preview|rm",
 		"archstate track home add|list|preview|rm",
-		"Aliases:",
-		"  config   track config",
-		"  home     track home",
-		"  managed  bare track",
+		"Fuzzy-select managed entries to stop tracking.",
 	} {
 		if !strings.Contains(env.stdout.String(), want) {
 			t.Fatalf("track help missing %q:\n%s", want, env.stdout.String())
@@ -170,41 +158,11 @@ func TestHelpCommandOrderFollowsUserFlow(t *testing.T) {
 		"  apply",
 		"  snapshot",
 		"Also:",
-		"  packages",
+		"  uninstall",
+		"  ignore",
 		"  service",
 		"  install",
 	)
-}
-
-func TestBootstrapFlagHelpPrintsBootstrapTopic(t *testing.T) {
-	env := newTestEnv(t)
-
-	for _, args := range [][]string{
-		{"bootstrap", "--help"},
-		{"bootstrap", "-h"},
-	} {
-		if err := env.run(args...); err != nil {
-			t.Fatalf("run(%v): %v", args, err)
-		}
-		got := env.stdout.String()
-		for _, want := range []string{
-			"Usage:\n  archstate bootstrap --dry-run",
-			"--aur-helper paru|yay",
-			"--adopt",
-			"--restore",
-			"--packages",
-		} {
-			if !strings.Contains(got, want) {
-				t.Fatalf("bootstrap help %v missing %q:\n%s", args, want, got)
-			}
-		}
-		if strings.Contains(got, "Commands:\n  init") {
-			t.Fatalf("bootstrap help should not print top-level overview:\n%s", got)
-		}
-		if env.stderr.Len() != 0 {
-			t.Fatalf("bootstrap help wrote to stderr: %s", env.stderr.String())
-		}
-	}
 }
 
 func TestApplyFlagHelpPrintsApplyTopic(t *testing.T) {
@@ -240,19 +198,12 @@ func TestCommandFlagHelpMatchesTopicHelp(t *testing.T) {
 		"init",
 		"install",
 		"sync",
-		"packages",
+		"uninstall",
+		"ignore",
 		"check",
-		"status",
-		"verify",
-		"coverage",
 		"track",
-		"managed",
-		"config",
-		"home",
 		"snapshot",
 		"apply",
-		"bootstrap",
-		"doctor",
 		"service",
 	}
 

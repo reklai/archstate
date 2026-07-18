@@ -557,7 +557,7 @@ func TestPackageRemovalCommandArgsUseOneDeterministicPacmanRemoval(t *testing.T)
 	}
 }
 
-func TestPackagesCommandSyncsRemovesWithPacmanAndSyncsAgain(t *testing.T) {
+func TestUninstallSyncsRemovesWithPacmanAndSyncsAgain(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	statePath := filepath.Join(env.root, "package-state")
@@ -586,7 +586,7 @@ printf 'after\n' > "$ARCHSTATE_PACKAGE_STATE"
 		return []packageRemovalItem{inventory.Native[0], inventory.AUR[0]}, nil
 	}
 
-	if err := env.run("packages"); err != nil {
+	if err := env.run("uninstall"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -606,7 +606,7 @@ printf 'after\n' > "$ARCHSTATE_PACKAGE_STATE"
 	}
 }
 
-func TestPackagesCommandRemovalFailureSkipsPostSync(t *testing.T) {
+func TestUninstallRemovalFailureSkipsPostSync(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	statePath := filepath.Join(env.root, "package-state")
@@ -621,7 +621,7 @@ exit 9
 		return []packageRemovalItem{inventory.Native[0]}, nil
 	}
 
-	err := env.run("packages")
+	err := env.run("uninstall")
 	if err == nil {
 		t.Fatal("expected removal failure")
 	}
@@ -635,7 +635,7 @@ exit 9
 	}
 }
 
-func TestPackagesCommandNonTTYFailsBeforeSync(t *testing.T) {
+func TestUninstallNonTTYFailsBeforeSync(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -643,7 +643,7 @@ echo "pacman should not run for non-TTY packages command" >&2
 exit 3
 `)
 
-	err := env.run("packages")
+	err := env.run("uninstall")
 	if err == nil {
 		t.Fatal("expected non-TTY error")
 	}
@@ -652,7 +652,7 @@ exit 3
 	}
 }
 
-func TestPackagesCommandTUIErrorSkipsRemoval(t *testing.T) {
+func TestUninstallTUIErrorSkipsRemoval(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	env.r.Env = append(env.r.Env, "ARCHSTATE_PACKAGE_STATE="+filepath.Join(env.root, "package-state"))
@@ -667,7 +667,7 @@ exit 3
 		return nil, wantErr
 	}
 
-	err := env.run("packages")
+	err := env.run("uninstall")
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("error = %v, want %v", err, wantErr)
 	}

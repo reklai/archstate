@@ -30,7 +30,7 @@ func TestConfigPreviewClassifiesEntriesAndExcludesRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := env.run("config", "preview"); err != nil {
+	if err := env.run("track", "config", "preview"); err != nil {
 		t.Fatal(err)
 	}
 	out := env.stdout.String()
@@ -62,7 +62,7 @@ func TestHomePreviewShowsDotfilesAndExcludesNoise(t *testing.T) {
 	writeFile(t, filepath.Join(env.home, ".cache", "x"), "noise\n")   // excluded dotfile
 	writeFile(t, filepath.Join(env.home, "Documents", "x"), "real\n") // non-dotfile
 
-	if err := env.run("home", "preview"); err != nil {
+	if err := env.run("track", "home", "preview"); err != nil {
 		t.Fatal(err)
 	}
 	out := env.stdout.String()

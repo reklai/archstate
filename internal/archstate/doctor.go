@@ -82,7 +82,7 @@ func (r *Runner) runDoctor() error {
 	ignoreNames, ignoreErr := readIgnoreList(repo.packagesIgnorePath())
 	reportStateFile(report, packagesIgnoreFile, ignoreErr,
 		"fix: restore packages.ignore from a snapshot",
-		"or recreate: archstate packages ignore list",
+		"or recreate: archstate ignore list",
 		"restore: archstate snapshot restore <id>",
 	)
 	configEntries, configErr := readStateFileStrictOptional(repo.configPath(), validateManagedEntry)
@@ -167,7 +167,7 @@ func (r *Runner) reportPackageDrift(report *doctorReport, repo repoPaths) {
 			"inspect: archstate check",
 			"gate strict: archstate check --exit --strict-packages",
 			"accept current machine: archstate sync",
-			"or ignore: archstate packages ignore add <pkg>",
+			"or ignore: archstate ignore add <pkg>",
 		)
 	}
 }

@@ -53,7 +53,7 @@ Six commands cover the common loop: set up, capture, check, apply.
 | `init` | Create the repo and install the CLI |
 | `sync` | Capture explicit packages from this machine |
 | `track` | Add/list/preview/rm config & home (TUI untrack with no args) |
-| `check` | Show drift/health; optional `--exit` / `--coverage` |
+| `check` | Show drift/health; optional `--exit` / `--gate` / subset views |
 | `apply` | Install missing packages and recreate managed symlinks |
 | `snapshot` | Save/restore repo-state snapshots |
 
@@ -103,11 +103,11 @@ Inspect drift and health:
 
 ```bash
 archstate check
-archstate check --exit
+archstate check --gate
 archstate check --coverage
 ```
 
-`check` prints package/managed drift plus doctor-style health. **Default check is informational**: ERROR/WARN lines may appear and the exit code is still 0. Only `--exit` (or the `verify` alias) is a completeness gate for scripts. Add `--strict-packages` with `--exit` to also fail on untracked explicit packages. `--coverage` also prints the coverage report after drift/health.
+`check` prints package/managed drift plus doctor-style health. **Default check is informational**: ERROR/WARN lines may appear and the exit code is still 0. Only `--exit` (full report, then the verdict) or `--gate` (compact `check: ok/failed` with remediation) is a completeness gate for scripts. Add `--strict-packages` to also fail on untracked explicit packages. Subset views print one section only: `--status` (drift listing), `--doctor` (health report, non-zero on ERROR), `--coverage` (coverage report).
 
 `sync` treats the current machine's explicit packages as source of truth:
 
@@ -212,7 +212,7 @@ archstate apply --adopt
 archstate apply --restore
 ```
 
-`--restore` fails if no tracked copy exists yet — there's nothing to restore, so use `--adopt` instead. (`--restore` replaced the old `--overwrite` flag.)
+`--restore` fails if no tracked copy exists yet — there's nothing to restore, so use `--adopt` instead.
 
 `--adopt` and `--restore` are all-or-nothing across every conflicting entry in one run; mix decisions per entry with `track config`/`track home` add/`rm` instead. Both auto-snapshot before touching anything.
 
@@ -231,9 +231,9 @@ It reports:
 - managed config and home entries as ok, missing, conflict, or error
 - environment and repo health (OK/WARN/ERROR)
 
-Use `check --exit` as the scriptable completeness gate after apply or before trusting a clone.
+Use `check --exit` or `check --gate` as the scriptable completeness gate after apply or before trusting a clone.
 
-Example doctor-style shape (included in `check`, or via the `doctor` alias):
+Example doctor-style shape (included in `check`, or alone via `check --doctor`):
 
 ```text
 OK repo: ~/.config/archstate-src
@@ -280,40 +280,25 @@ Repo-state mutations take a per-repo lock so two Archstate commands do not rewri
 
 ## Advanced
 
-### Aliases (still work)
-
-Older command names remain permanent legacy entry points. They are **not always identical** to a single primary flag combination (output shape may differ):
-
-| Alias | Relationship to primary surface |
-|-------|----------------------------------|
-| `status` | Drift listing only (subset of `check`; no doctor section) |
-| `verify` | Exit-code gate with the same checks as `check --exit`, but compact `verify:` messaging only |
-| `doctor` | Health report only; fails on ERROR (primary `check` prints this section but stays exit 0 without `--exit`) |
-| `coverage` | Coverage report only (subset of `check --coverage`, which also prints drift/health first) |
-| `config` | `track config` |
-| `home` | `track home` |
-| `managed` | bare `track` (untrack TUI) |
-| `bootstrap` | `apply` (same flags and behavior) |
-
 ### Package tools
 
 Remove explicit packages through the interactive TUI:
 
 ```bash
-archstate packages
+archstate uninstall
 ```
 
-`packages` syncs first, opens a fuzzy-search removal UI with Native and AUR sections, shows a scrollable review of the marked packages (where you can still unmark before committing), runs one confirmed `sudo pacman -Rns ...` command, then syncs package state again after successful removal.
+`uninstall` syncs first, opens a fuzzy-search removal UI with Native and AUR sections, shows a scrollable review of the marked packages (where you can still unmark before committing), runs one confirmed `sudo pacman -Rns ...` command, then syncs package state again after successful removal.
 
 Host-specific or ephemeral packages can be left installed without tracking them:
 
 ```bash
-archstate packages ignore add linux-zen nvidia
-archstate packages ignore list
-archstate packages ignore rm nvidia
+archstate ignore add linux-zen nvidia
+archstate ignore list
+archstate ignore rm nvidia
 ```
 
-Ignored names are written to `packages.ignore`. `sync` never records them, `check`/`doctor`/`verify --strict-packages` do not treat them as untracked, and `apply` will not install them even if an older commit still lists them.
+Ignored names are written to `packages.ignore`. `sync` never records them, `check`/`check --gate --strict-packages` do not treat them as untracked, and `apply` will not install them even if an older commit still lists them.
 
 ### Optional auto-sync
 
@@ -393,7 +378,7 @@ Primary commands:
 init       Create repo state and install archstate to ~/.local/bin.
 sync       Capture explicit packages from this machine.
 track      Add/list/preview/rm config & home (TUI untrack with no args).
-check      Show drift/health; --exit / --strict-packages for scripts; --coverage.
+check      Show drift/health; --exit / --gate for scripts; --status/--doctor/--coverage subsets.
 apply      Install missing packages and recreate managed symlinks.
 snapshot   Save, list, restore, or remove repo-state snapshots.
 ```
@@ -401,7 +386,8 @@ snapshot   Save, list, restore, or remove repo-state snapshots.
 Also:
 
 ```text
-packages   Fuzzy-select explicit packages to remove; manage package ignores.
+uninstall  Fuzzy-select explicit packages to remove.
+ignore     Manage the package ignore list.
 service    Manage the optional systemd user sync timer.
 install    Install or update archstate in ~/.local/bin.
 ```
@@ -500,7 +486,7 @@ Files are machine-formatted and alphabetized by key. `sync` treats installed exp
 - Package removal is explicit and confirmed; Archstate delegates removal to `sudo pacman -Rns` and records the result via `sync`.
 - Package ignores and sensitive-name denies keep intent intentional; force flags are opt-in and loud.
 - Reproducibility means installing missing explicit packages (minus ignores) and recreating managed config/home symlinks.
-- `check --exit` (alias: `verify`) is the scriptable completeness gate after apply or before trusting a clone.
+- `check --exit` / `check --gate` is the scriptable completeness gate after apply or before trusting a clone.
 
 ## License
 

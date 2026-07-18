@@ -35,10 +35,10 @@ esac
 	}
 }
 
-func TestStatusAliasStillWorks(t *testing.T) {
+func TestCheckStatusSubsetOmitsDoctor(t *testing.T) {
 	env := newTestEnv(t)
 	setupCleanMachine(t, env)
-	if err := env.run("status"); err != nil {
+	if err := env.run("check", "--status"); err != nil {
 		t.Fatal(err)
 	}
 	out := env.stdout.String()
@@ -47,103 +47,61 @@ func TestStatusAliasStillWorks(t *testing.T) {
 		"ok nvim",
 	} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("status alias missing %q:\n%s", want, out)
+			t.Fatalf("check --status missing %q:\n%s", want, out)
 		}
 	}
-	// status is drift-only; no doctor section.
+	// --status is drift-only; no doctor section.
 	if strings.Contains(out, "OK repo:") {
-		t.Fatalf("status should omit doctor output:\n%s", out)
+		t.Fatalf("check --status should omit doctor output:\n%s", out)
 	}
 }
 
-func TestVerifyAliasStillWorks(t *testing.T) {
+func TestCheckGateCompactOutput(t *testing.T) {
 	env := newTestEnv(t)
 	setupCleanMachine(t, env)
-	if err := env.run("verify"); err != nil {
-		t.Fatalf("verify: %v\n%s", err, env.stdout.String())
+	if err := env.run("check", "--gate"); err != nil {
+		t.Fatalf("check --gate: %v\n%s", err, env.stdout.String())
 	}
 	out := env.stdout.String()
-	if !strings.Contains(out, "verify: ok") {
-		t.Fatalf("expected verify: ok:\n%s", out)
+	if !strings.Contains(out, "check: ok") {
+		t.Fatalf("expected check: ok:\n%s", out)
 	}
-	// verify is compact; not the full check listing.
+	// --gate is compact; not the full check listing.
 	if strings.Contains(out, "Package status:") {
-		t.Fatalf("verify should not print status listing:\n%s", out)
+		t.Fatalf("check --gate should not print status listing:\n%s", out)
 	}
 	if strings.Contains(out, "OK repo:") {
-		t.Fatalf("verify should not print doctor listing:\n%s", out)
+		t.Fatalf("check --gate should not print doctor listing:\n%s", out)
 	}
 }
 
-func TestDoctorAliasStillWorks(t *testing.T) {
+func TestCheckDoctorSubsetOmitsStatus(t *testing.T) {
 	env := newTestEnv(t)
 	setupCleanMachine(t, env)
-	if err := env.run("doctor"); err != nil {
-		t.Fatalf("doctor: %v\n%s", err, env.stdout.String())
+	if err := env.run("check", "--doctor"); err != nil {
+		t.Fatalf("check --doctor: %v\n%s", err, env.stdout.String())
 	}
 	out := env.stdout.String()
 	if !strings.Contains(out, "OK repo:") {
-		t.Fatalf("doctor missing health report:\n%s", out)
+		t.Fatalf("check --doctor missing health report:\n%s", out)
 	}
 	if strings.Contains(out, "Package status:") {
-		t.Fatalf("doctor should not print status listing:\n%s", out)
+		t.Fatalf("check --doctor should not print status listing:\n%s", out)
 	}
 }
 
-func TestCoverageAliasStillWorks(t *testing.T) {
+func TestCheckCoverageSubsetOmitsStatus(t *testing.T) {
 	env := newTestEnv(t)
 	setupCleanMachine(t, env)
-	if err := env.run("coverage"); err != nil {
-		t.Fatalf("coverage: %v\n%s", err, env.stdout.String())
+	if err := env.run("check", "--coverage"); err != nil {
+		t.Fatalf("check --coverage: %v\n%s", err, env.stdout.String())
 	}
 	out := env.stdout.String()
 	if !strings.Contains(out, "Config coverage") {
-		t.Fatalf("coverage missing report:\n%s", out)
+		t.Fatalf("check --coverage missing report:\n%s", out)
 	}
 	if strings.Contains(out, "Package status:") {
-		t.Fatalf("coverage alias should be coverage-only:\n%s", out)
-	}
-}
-
-func TestBootstrapAliasStillWorks(t *testing.T) {
-	env := newTestEnv(t)
-	setupCleanMachine(t, env)
-	if err := env.run("bootstrap", "--dry-run"); err != nil {
-		t.Fatal(err)
-	}
-	out := env.stdout.String()
-	for _, want := range []string{
-		"Package plan:",
-		"native install: none",
-		"Config plan:",
-		"ok ",
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("bootstrap --dry-run missing %q:\n%s", want, out)
-		}
-	}
-}
-
-func TestConfigAliasStillWorks(t *testing.T) {
-	env := newTestEnv(t)
-	setupCleanMachine(t, env)
-	if err := env.run("config", "list"); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(env.stdout.String(), "nvim") {
-		t.Fatalf("config list missing nvim:\n%s", env.stdout.String())
-	}
-}
-
-func TestManagedAliasRequiresTerminal(t *testing.T) {
-	env := newTestEnv(t)
-	setupCleanMachine(t, env)
-	err := env.run("managed")
-	if err == nil {
-		t.Fatal("expected managed to require interactive terminal")
-	}
-	if !strings.Contains(err.Error(), "archstate managed requires an interactive terminal") {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("check --coverage should be coverage-only:\n%s", out)
 	}
 }
 
@@ -318,24 +276,6 @@ func TestCheckRejectsUnknownFlag(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "usage: archstate check") {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestCheckCoverage(t *testing.T) {
-	env := newTestEnv(t)
-	setupCleanMachine(t, env)
-	if err := env.run("check", "--coverage"); err != nil {
-		t.Fatalf("check --coverage: %v\n%s", err, env.stdout.String())
-	}
-	out := env.stdout.String()
-	if !strings.Contains(out, "Config coverage") {
-		t.Fatalf("check --coverage missing coverage section:\n%s", out)
-	}
-	if !strings.Contains(out, "Package status:") {
-		t.Fatalf("check --coverage should still print status:\n%s", out)
-	}
-	if !strings.Contains(out, "OK repo:") {
-		t.Fatalf("check --coverage should still print doctor:\n%s", out)
 	}
 }
 

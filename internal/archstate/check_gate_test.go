@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestVerifyOkWhenMachineMatches(t *testing.T) {
+func TestCheckGateOkWhenMachineMatches(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -32,15 +32,15 @@ esac
 		t.Fatal(err)
 	}
 
-	if err := env.run("verify"); err != nil {
-		t.Fatalf("verify: %v\n%s", err, env.stdout.String())
+	if err := env.run("check", "--gate"); err != nil {
+		t.Fatalf("check --gate: %v\n%s", err, env.stdout.String())
 	}
-	if !strings.Contains(env.stdout.String(), "verify: ok") {
+	if !strings.Contains(env.stdout.String(), "check: ok") {
 		t.Fatalf("expected ok:\n%s", env.stdout.String())
 	}
 }
 
-func TestVerifyFailsOnMissingPackagesAndConflicts(t *testing.T) {
+func TestCheckGateFailsOnMissingPackagesAndConflicts(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -61,30 +61,30 @@ esac
 	}
 	writeFile(t, filepath.Join(env.home, ".config", "gtk"), "unmanaged\n")
 
-	err := env.run("verify")
+	err := env.run("check", "--gate")
 	if err == nil {
-		t.Fatal("expected verify failure")
+		t.Fatal("expected check --gate failure")
 	}
-	if !strings.Contains(err.Error(), "verify found drift") {
+	if !strings.Contains(err.Error(), "check found drift") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	out := env.stdout.String()
 	for _, want := range []string{
-		"verify: failed",
+		"check: failed",
 		"native missing: neovim",
 		"config conflict: gtk",
 	} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("verify output missing %q:\n%s", want, out)
+			t.Fatalf("check --gate output missing %q:\n%s", want, out)
 		}
 	}
 	// Untracked packages are not failures without --strict-packages.
 	if strings.Contains(out, "untracked") {
-		t.Fatalf("default verify should not fail on untracked:\n%s", out)
+		t.Fatalf("default check --gate should not fail on untracked:\n%s", out)
 	}
 }
 
-func TestVerifyStrictPackagesFailsOnUntracked(t *testing.T) {
+func TestCheckGateStrictPackagesFailsOnUntracked(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -97,16 +97,16 @@ esac
 	writeFile(t, filepath.Join(env.repo, "pacman.conf"), generatedHeader+"git=desc\n")
 	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader)
 
-	err := env.run("verify", "--strict-packages")
+	err := env.run("check", "--gate", "--strict-packages")
 	if err == nil {
-		t.Fatal("expected strict verify failure")
+		t.Fatal("expected strict check --gate failure")
 	}
 	if !strings.Contains(env.stdout.String(), "native untracked: ripgrep") {
 		t.Fatalf("expected untracked failure:\n%s", env.stdout.String())
 	}
 }
 
-func TestVerifyPackagesOnlySkipsConfig(t *testing.T) {
+func TestCheckGatePackagesOnlySkipsConfig(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -127,12 +127,12 @@ esac
 	}
 	writeFile(t, filepath.Join(env.home, ".config", "gtk"), "unmanaged\n")
 
-	if err := env.run("verify", "--packages-only"); err != nil {
+	if err := env.run("check", "--gate", "--packages-only"); err != nil {
 		t.Fatalf("packages-only should ignore config conflict: %v\n%s", err, env.stdout.String())
 	}
 }
 
-func TestVerifyDotfilesOnlySkipsPackages(t *testing.T) {
+func TestCheckGateDotfilesOnlySkipsPackages(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -147,12 +147,12 @@ esac
 	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader)
 	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader)
 
-	if err := env.run("verify", "--dotfiles-only"); err != nil {
+	if err := env.run("check", "--gate", "--dotfiles-only"); err != nil {
 		t.Fatalf("dotfiles-only should ignore missing packages: %v\n%s", err, env.stdout.String())
 	}
 }
 
-func TestVerifyDotfilesOnlyDoesNotRequirePacman(t *testing.T) {
+func TestCheckGateDotfilesOnlyDoesNotRequirePacman(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	// No pacman binary in PATH. --dotfiles-only must not touch package layer.
@@ -160,15 +160,15 @@ func TestVerifyDotfilesOnlyDoesNotRequirePacman(t *testing.T) {
 	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader)
 	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader)
 
-	if err := env.run("verify", "--dotfiles-only"); err != nil {
+	if err := env.run("check", "--gate", "--dotfiles-only"); err != nil {
 		t.Fatalf("dotfiles-only must succeed without pacman: %v\n%s", err, env.stdout.String())
 	}
-	if !strings.Contains(env.stdout.String(), "verify: ok") {
-		t.Fatalf("expected verify: ok:\n%s", env.stdout.String())
+	if !strings.Contains(env.stdout.String(), "check: ok") {
+		t.Fatalf("expected check: ok:\n%s", env.stdout.String())
 	}
 }
 
-func TestVerifyPackagesOnlyDoesNotRequireManagedState(t *testing.T) {
+func TestCheckGatePackagesOnlyDoesNotRequireManagedState(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -180,15 +180,15 @@ esac
 `)
 	writeFile(t, filepath.Join(env.repo, "pacman.conf"), generatedHeader+"git=desc\n")
 	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader)
-	// Malformed config must not abort packages-only verify.
+	// Malformed config must not abort packages-only gate.
 	writeFile(t, filepath.Join(env.repo, "config.conf"), "not=valid=managed\n")
 
-	if err := env.run("verify", "--packages-only"); err != nil {
+	if err := env.run("check", "--gate", "--packages-only"); err != nil {
 		t.Fatalf("packages-only must ignore broken config: %v\n%s", err, env.stdout.String())
 	}
 }
 
-func TestVerifyRemediationForUntrackedOnly(t *testing.T) {
+func TestCheckGateRemediationForUntrackedOnly(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -201,7 +201,7 @@ esac
 	writeFile(t, filepath.Join(env.repo, "pacman.conf"), generatedHeader+"git=desc\n")
 	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader)
 
-	err := env.run("verify", "--strict-packages", "--packages-only")
+	err := env.run("check", "--gate", "--strict-packages", "--packages-only")
 	if err == nil {
 		t.Fatal("expected failure on untracked")
 	}
@@ -209,7 +209,7 @@ esac
 	for _, want := range []string{
 		"native untracked: ripgrep",
 		"accept untracked packages: archstate sync",
-		"or ignore: archstate packages ignore add <pkg>",
+		"or ignore: archstate ignore add <pkg>",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing remediation %q:\n%s", want, out)
@@ -224,7 +224,7 @@ esac
 	}
 }
 
-func TestVerifyRemediationForMissingPackagesAndManaged(t *testing.T) {
+func TestCheckGateRemediationForMissingPackagesAndManaged(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -242,9 +242,9 @@ esac
 	}
 	// Missing local symlink → managed missing.
 
-	err := env.run("verify")
+	err := env.run("check", "--gate")
 	if err == nil {
-		t.Fatal("expected verify failure")
+		t.Fatal("expected check --gate failure")
 	}
 	out := env.stdout.String()
 	for _, want := range []string{
@@ -257,10 +257,10 @@ esac
 	}
 }
 
-func TestVerifyMutuallyExclusiveFlags(t *testing.T) {
+func TestCheckGateMutuallyExclusiveFlags(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
-	err := env.run("verify", "--packages-only", "--dotfiles-only")
+	err := env.run("check", "--gate", "--packages-only", "--dotfiles-only")
 	if err == nil {
 		t.Fatal("expected mutual exclusion error")
 	}

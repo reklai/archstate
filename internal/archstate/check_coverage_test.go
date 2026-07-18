@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestCoverageReportsTrackedAndAddable(t *testing.T) {
+func TestCheckCoverageReportsTrackedAndAddable(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 
@@ -22,7 +22,7 @@ func TestCoverageReportsTrackedAndAddable(t *testing.T) {
 	writeFile(t, filepath.Join(env.home, ".profile"), "export PATH\n")
 	writeFile(t, filepath.Join(env.home, ".ssh", "config"), "Host *\n")
 
-	if err := env.run("coverage"); err != nil {
+	if err := env.run("check", "--coverage"); err != nil {
 		t.Fatal(err)
 	}
 	out := env.stdout.String()

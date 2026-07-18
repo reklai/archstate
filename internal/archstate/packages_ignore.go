@@ -104,12 +104,12 @@ func (r *Runner) loadPackageIgnoreSet(repo repoPaths) (map[string]bool, error) {
 	return ignoreSet(names), nil
 }
 
-func (r *Runner) runPackagesIgnore(args []string) error {
+func (r *Runner) runIgnore(args []string) error {
 	if len(args) == 1 && isHelpArg(args[0]) {
-		return r.printCommandHelp("packages")
+		return r.printCommandHelp("ignore")
 	}
 	if len(args) < 1 {
-		return fmt.Errorf("usage: archstate packages ignore add <pkg>...\n   or: archstate packages ignore rm <pkg>...\n   or: archstate packages ignore list")
+		return fmt.Errorf("usage: archstate ignore add <pkg>...\n   or: archstate ignore rm <pkg>...\n   or: archstate ignore list")
 	}
 	repo, err := r.discoverExistingRepo()
 	if err != nil {
@@ -118,29 +118,29 @@ func (r *Runner) runPackagesIgnore(args []string) error {
 	switch args[0] {
 	case "add":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: archstate packages ignore add <pkg>...")
+			return fmt.Errorf("usage: archstate ignore add <pkg>...")
 		}
-		return r.runPackagesIgnoreAdd(repo, args[1:])
+		return r.runIgnoreAdd(repo, args[1:])
 	case "rm":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: archstate packages ignore rm <pkg>...")
+			return fmt.Errorf("usage: archstate ignore rm <pkg>...")
 		}
-		return r.runPackagesIgnoreRemove(repo, args[1:])
+		return r.runIgnoreRemove(repo, args[1:])
 	case "list":
 		if len(args) != 1 {
-			return fmt.Errorf("usage: archstate packages ignore list")
+			return fmt.Errorf("usage: archstate ignore list")
 		}
-		return r.runPackagesIgnoreList(repo)
+		return r.runIgnoreList(repo)
 	default:
-		return fmt.Errorf("unknown packages ignore command %q; expected add, rm, or list", args[0])
+		return fmt.Errorf("unknown ignore command %q; expected add, rm, or list", args[0])
 	}
 }
 
-func (r *Runner) runPackagesIgnoreAdd(repo repoPaths, names []string) error {
+func (r *Runner) runIgnoreAdd(repo repoPaths, names []string) error {
 	if err := validateNameArgs(names); err != nil {
 		return err
 	}
-	return r.withRepoLock(repo, "packages ignore add", func() error {
+	return r.withRepoLock(repo, "ignore add", func() error {
 		for _, name := range names {
 			if err := validatePackageEntry(name, ""); err != nil {
 				return err
@@ -171,11 +171,11 @@ func (r *Runner) runPackagesIgnoreAdd(repo repoPaths, names []string) error {
 	})
 }
 
-func (r *Runner) runPackagesIgnoreRemove(repo repoPaths, names []string) error {
+func (r *Runner) runIgnoreRemove(repo repoPaths, names []string) error {
 	if err := validateNameArgs(names); err != nil {
 		return err
 	}
-	return r.withRepoLock(repo, "packages ignore rm", func() error {
+	return r.withRepoLock(repo, "ignore rm", func() error {
 		for _, name := range names {
 			if err := validatePackageEntry(name, ""); err != nil {
 				return err
@@ -206,7 +206,7 @@ func (r *Runner) runPackagesIgnoreRemove(repo repoPaths, names []string) error {
 	})
 }
 
-func (r *Runner) runPackagesIgnoreList(repo repoPaths) error {
+func (r *Runner) runIgnoreList(repo repoPaths) error {
 	names, err := readIgnoreList(repo.packagesIgnorePath())
 	if err != nil {
 		return err

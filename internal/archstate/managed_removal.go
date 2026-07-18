@@ -88,18 +88,11 @@ func managedRemovalStatus(action ManagedAction) string {
 	}
 }
 
-func (r *Runner) runManaged(args []string) error {
-	return r.runManagedAs("managed", args)
-}
-
 // runManagedAs opens the managed untrack TUI. cmd is the user-facing verb used in
-// usage and terminal-required errors (e.g. "managed", "track", "track untrack").
+// usage and terminal-required errors ("track" or "track untrack").
 func (r *Runner) runManagedAs(cmd string, args []string) error {
 	if len(args) == 1 && isHelpArg(args[0]) {
-		if strings.HasPrefix(cmd, "track") {
-			return r.printCommandHelp("track")
-		}
-		return r.printCommandHelp("managed")
+		return r.printCommandHelp("track")
 	}
 	if len(args) != 0 {
 		return fmt.Errorf("usage: archstate %s", cmd)
@@ -113,7 +106,7 @@ func (r *Runner) runManagedAs(cmd string, args []string) error {
 		return fmt.Errorf("archstate %s requires an interactive terminal; run it directly in a terminal, not through a pipe or in a script", cmd)
 	}
 
-	return r.withRepoLock(repo, "managed", func() error {
+	return r.withRepoLock(repo, cmd, func() error {
 		inventory, err := loadManagedRemovalInventory(repo)
 		if err != nil {
 			return err
@@ -170,7 +163,7 @@ func (r *Runner) selectManagedForUntrack(inventory managedRemovalInventory) ([]m
 		return r.managedRemovalTUI(inventory)
 	}
 	if !interactiveTerminal(r.Stdin, r.Stdout) {
-		return nil, fmt.Errorf("archstate managed requires an interactive terminal; run it directly in a terminal, not through a pipe or in a script")
+		return nil, fmt.Errorf("archstate track requires an interactive terminal; run it directly in a terminal, not through a pipe or in a script")
 	}
 
 	program := tea.NewProgram(

@@ -98,21 +98,6 @@ func (r *Runner) computeMachineDriftLayers(repo repoPaths, layers driftLayers) (
 	return d, nil
 }
 
-func (r *Runner) runStatus() error {
-	// status is an alias of check without --exit (drift listing only for
-	// exact historical output; primary check also includes doctor sections).
-	repo, err := r.discoverExistingRepo()
-	if err != nil {
-		return err
-	}
-	d, err := r.computeMachineDrift(repo)
-	if err != nil {
-		return err
-	}
-	r.printStatus(d.Native, d.AUR, d.Config, d.Home)
-	return nil
-}
-
 func packageDrift(tracked map[string]string, installed []string) PackageDrift {
 	return PackageDrift{
 		Missing:   missingPackages(tracked, installed),

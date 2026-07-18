@@ -26,7 +26,7 @@ func TestHomeAddAdoptsExistingHomeFile(t *testing.T) {
 	env.initRepo(t)
 	writeFile(t, filepath.Join(env.home, ".zshrc"), "export EDITOR=nvim\n")
 
-	if err := env.run("home", "add", ".zshrc"); err != nil {
+	if err := env.run("track", "home", "add", ".zshrc"); err != nil {
 		t.Fatal(err)
 	}
 	repoTarget := filepath.Join(env.repo, "home", ".zshrc")
@@ -51,7 +51,7 @@ func TestHomeAddRejectsNestedPath(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 
-	err := env.run("home", "add", ".ssh/config")
+	err := env.run("track", "home", "add", ".ssh/config")
 	if err == nil {
 		t.Fatal("expected nested home path to be rejected")
 	}
@@ -65,7 +65,7 @@ func TestHomeListShowsTrackedEntries(t *testing.T) {
 	env.initRepo(t)
 	writeFile(t, filepath.Join(env.repo, "home.conf"), generatedHeader+".zshrc=zshrc\n.profile=.profile\n")
 
-	if err := env.run("home", "list"); err != nil {
+	if err := env.run("track", "home", "list"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -81,7 +81,7 @@ func TestHomeListShowsEmptyState(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 
-	if err := env.run("home", "list"); err != nil {
+	if err := env.run("track", "home", "list"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -101,7 +101,7 @@ func TestHomeRemoveRestoresLocalFileAndRemovesRepoData(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := env.run("home", "rm", ".zshrc"); err != nil {
+	if err := env.run("track", "home", "rm", ".zshrc"); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Lstat(local)
@@ -123,7 +123,7 @@ func TestHomeRemoveRestoresLocalFileAndRemovesRepoData(t *testing.T) {
 	}
 }
 
-func TestBootstrapDryRunIncludesHomeFiles(t *testing.T) {
+func TestApplyDryRunIncludesHomeFiles(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -144,7 +144,7 @@ esac
 	repoTarget := filepath.Join(env.repo, "home", ".zshrc")
 	writeFile(t, repoTarget, "export EDITOR=nvim\n")
 
-	if err := env.run("bootstrap", "--dry-run"); err != nil {
+	if err := env.run("apply", "--dry-run"); err != nil {
 		t.Fatal(err)
 	}
 	want := "link " + filepath.Join(env.home, ".zshrc") + " -> " + repoTarget
@@ -153,7 +153,7 @@ esac
 	}
 }
 
-func TestStatusTreatsMissingHomeConfAsEmptyForOlderRepos(t *testing.T) {
+func TestCheckStatusTreatsMissingHomeConfAsEmptyForOlderRepos(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	if err := os.Remove(filepath.Join(env.repo, "home.conf")); err != nil {
@@ -174,15 +174,15 @@ case "$1" in
 esac
 `)
 
-	if err := env.run("status"); err != nil {
+	if err := env.run("check", "--status"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(env.stdout.String(), "Home file status:\n  no home files declared") {
-		t.Fatalf("status did not treat missing home.conf as empty:\n%s", env.stdout.String())
+		t.Fatalf("check --status did not treat missing home.conf as empty:\n%s", env.stdout.String())
 	}
 }
 
-func TestBootstrapHomeAdoptReplacesTrackedCopy(t *testing.T) {
+func TestApplyHomeAdoptReplacesTrackedCopy(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -205,7 +205,7 @@ esac
 	local := filepath.Join(env.home, ".zshrc")
 	writeFile(t, local, "current home file\n")
 
-	if err := env.run("bootstrap", "--adopt"); err != nil {
+	if err := env.run("apply", "--adopt"); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(t, repoTarget); got != "current home file\n" {
@@ -220,7 +220,7 @@ esac
 	}
 }
 
-func TestBootstrapHomeRestoreRestoresTrackedCopy(t *testing.T) {
+func TestApplyHomeRestoreRestoresTrackedCopy(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -243,7 +243,7 @@ esac
 	local := filepath.Join(env.home, ".zshrc")
 	writeFile(t, local, "unmanaged local copy\n")
 
-	if err := env.run("bootstrap", "--restore"); err != nil {
+	if err := env.run("apply", "--restore"); err != nil {
 		t.Fatal(err)
 	}
 	target, err := os.Readlink(local)

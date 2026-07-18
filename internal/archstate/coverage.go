@@ -18,7 +18,7 @@ type coverageBucket struct {
 
 func (r *Runner) runCoverage(args []string) error {
 	if len(args) != 0 {
-		return fmt.Errorf("usage: archstate coverage")
+		return fmt.Errorf("usage: archstate check --coverage")
 	}
 	repo, err := r.discoverExistingRepo()
 	if err != nil {

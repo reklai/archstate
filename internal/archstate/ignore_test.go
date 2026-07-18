@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-func TestPackagesIgnoreAddListRemove(t *testing.T) {
+func TestIgnoreAddListRemove(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 
-	if err := env.run("packages", "ignore", "add", "linux-zen", "nvidia"); err != nil {
+	if err := env.run("ignore", "add", "linux-zen", "nvidia"); err != nil {
 		t.Fatal(err)
 	}
-	if err := env.run("packages", "ignore", "list"); err != nil {
+	if err := env.run("ignore", "list"); err != nil {
 		t.Fatal(err)
 	}
 	out := env.stdout.String()
@@ -27,10 +27,10 @@ func TestPackagesIgnoreAddListRemove(t *testing.T) {
 		t.Fatalf("packages.ignore content:\n%s", data)
 	}
 
-	if err := env.run("packages", "ignore", "rm", "nvidia"); err != nil {
+	if err := env.run("ignore", "rm", "nvidia"); err != nil {
 		t.Fatal(err)
 	}
-	if err := env.run("packages", "ignore", "list"); err != nil {
+	if err := env.run("ignore", "list"); err != nil {
 		t.Fatal(err)
 	}
 	out = env.stdout.String()
@@ -72,7 +72,7 @@ esac
 	}
 }
 
-func TestStatusAndVerifyIgnoreUntrackedIgnoredPackages(t *testing.T) {
+func TestCheckIgnoresUntrackedIgnoredPackages(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -86,18 +86,18 @@ esac
 	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader)
 	writeFile(t, filepath.Join(env.repo, packagesIgnoreFile), generatedHeader+"linux-zen\n")
 
-	if err := env.run("status"); err != nil {
+	if err := env.run("check", "--status"); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(env.stdout.String(), "linux-zen") {
-		t.Fatalf("status should not report ignored package as untracked:\n%s", env.stdout.String())
+		t.Fatalf("check --status should not report ignored package as untracked:\n%s", env.stdout.String())
 	}
-	if err := env.run("verify", "--strict-packages"); err != nil {
-		t.Fatalf("strict verify should pass when only ignored packages are extra: %v\n%s", err, env.stdout.String())
+	if err := env.run("check", "--gate", "--strict-packages"); err != nil {
+		t.Fatalf("strict gate should pass when only ignored packages are extra: %v\n%s", err, env.stdout.String())
 	}
 }
 
-func TestBootstrapDoesNotInstallIgnoredTrackedPackages(t *testing.T) {
+func TestApplyDoesNotInstallIgnoredTrackedPackages(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -111,43 +111,43 @@ esac
 	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader)
 	writeFile(t, filepath.Join(env.repo, packagesIgnoreFile), generatedHeader+"linux-zen\n")
 
-	if err := env.run("bootstrap", "--packages", "--dry-run"); err != nil {
+	if err := env.run("apply", "--packages", "--dry-run"); err != nil {
 		t.Fatal(err)
 	}
 	out := env.stdout.String()
 	if strings.Contains(out, "linux-zen") {
-		t.Fatalf("bootstrap should not plan install for ignored package:\n%s", out)
+		t.Fatalf("apply should not plan install for ignored package:\n%s", out)
 	}
 	if !strings.Contains(out, "native install: none") {
 		t.Fatalf("expected no native installs:\n%s", out)
 	}
 }
 
-func TestDoctorReportsMalformedPackagesIgnore(t *testing.T) {
+func TestCheckDoctorReportsMalformedPackagesIgnore(t *testing.T) {
 	env := newTestEnv(t)
 	setupCleanMachine(t, env)
 	// Path separator is rejected by validatePackageEntry / validateDirectChildName.
 	writeFile(t, filepath.Join(env.repo, packagesIgnoreFile), "bad/pkg\n")
 
-	err := env.run("doctor")
+	err := env.run("check", "--doctor")
 	if err == nil {
-		t.Fatal("doctor should fail on malformed packages.ignore")
+		t.Fatal("check --doctor should fail on malformed packages.ignore")
 	}
 	out := env.stdout.String()
 	if !strings.Contains(out, "ERROR "+packagesIgnoreFile+":") {
-		t.Fatalf("doctor should ERROR on packages.ignore:\n%s", out)
+		t.Fatalf("check --doctor should ERROR on packages.ignore:\n%s", out)
 	}
 }
 
-func TestDoctorIgnoresStaleIgnoredAURForHelper(t *testing.T) {
+func TestCheckDoctorIgnoresStaleIgnoredAURForHelper(t *testing.T) {
 	env := newTestEnv(t)
 	setupCleanMachine(t, env)
 	// Only AUR intent is an ignored package — must not demand an AUR helper.
 	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader+"yay-bin=desc\n")
 	writeFile(t, filepath.Join(env.repo, packagesIgnoreFile), generatedHeader+"yay-bin\n")
 
-	if err := env.run("doctor"); err != nil {
-		t.Fatalf("doctor should pass when AUR intent is fully ignored: %v\n%s", err, env.stdout.String())
+	if err := env.run("check", "--doctor"); err != nil {
+		t.Fatalf("check --doctor should pass when AUR intent is fully ignored: %v\n%s", err, env.stdout.String())
 	}
 	if strings.Contains(env.stdout.String(), "ERROR AUR helper:") {
 		t.Fatalf("ignored AUR entries must not require helper:\n%s", env.stdout.String())

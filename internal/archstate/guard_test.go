@@ -53,7 +53,7 @@ func TestDirtyGitRepoDoesNotBlockManagedAdd(t *testing.T) {
 	local := filepath.Join(env.home, ".config", "starship.toml")
 	writeFile(t, local, "local\n")
 
-	if err := env.run("config", "add", "starship.toml"); err != nil {
+	if err := env.run("track", "config", "add", "starship.toml"); err != nil {
 		t.Fatal(err)
 	}
 	repoTarget := filepath.Join(env.repo, "config", "starship.toml")
@@ -112,7 +112,7 @@ func TestDirtyGitRepoDoesNotBlockManagedRemove(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if err := env.run(tt.command, "rm", tt.removeName); err != nil {
+			if err := env.run("track", tt.command, "rm", tt.removeName); err != nil {
 				t.Fatal(err)
 			}
 			snapshotRoot := filepath.Join(env.repo, ".snapshots", "auto-2026-06-04_20-10-00")
@@ -156,7 +156,7 @@ func TestDirtyGitRepoDoesNotBlockSnapshotRestore(t *testing.T) {
 	}
 }
 
-func TestDirtyGitRepoDoesNotBlockBootstrapRiskyManagedActions(t *testing.T) {
+func TestDirtyGitRepoDoesNotBlockApplyRiskyManagedActions(t *testing.T) {
 	tests := []struct {
 		name string
 		flag string
@@ -189,15 +189,15 @@ esac
 			local := filepath.Join(env.home, ".config", "nvim")
 			writeFile(t, filepath.Join(local, "init.lua"), "local\n")
 
-			if err := env.run("bootstrap", tt.flag); err != nil {
+			if err := env.run("apply", tt.flag); err != nil {
 				t.Fatal(err)
 			}
 			snapshotTarget := filepath.Join(env.repo, ".snapshots", "auto-2026-06-04_20-30-00", "config", "nvim", "init.lua")
 			if got := readFile(t, snapshotTarget); got != "tracked\n" {
-				t.Fatalf("bootstrap snapshot = %q, want pre-change tracked state", got)
+				t.Fatalf("apply snapshot = %q, want pre-change tracked state", got)
 			}
 			if !isCorrectSymlink(local, repoTarget) {
-				t.Fatalf("bootstrap should leave local entry as managed symlink")
+				t.Fatalf("apply should leave local entry as managed symlink")
 			}
 			if tt.flag == "--adopt" {
 				if got := readFile(t, filepath.Join(repoTarget, "init.lua")); got != "local\n" {

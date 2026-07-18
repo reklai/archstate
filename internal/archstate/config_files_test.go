@@ -12,7 +12,7 @@ func TestConfigAddAdoptsExistingConfig(t *testing.T) {
 	env.initRepo(t)
 	writeFile(t, filepath.Join(env.home, ".config", "nvim", "init.lua"), "vim.opt.number = true\n")
 
-	if err := env.run("config", "add", "nvim"); err != nil {
+	if err := env.run("track", "config", "add", "nvim"); err != nil {
 		t.Fatal(err)
 	}
 	repoTarget := filepath.Join(env.repo, "config", "nvim")
@@ -37,7 +37,7 @@ func TestConfigAddReportsNothingWhenNoSourceExists(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 
-	if err := env.run("config", "add", "nvim"); err != nil {
+	if err := env.run("track", "config", "add", "nvim"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(env.stdout.String(), "nothing to add for nvim") {
@@ -54,7 +54,7 @@ func TestConfigListShowsTrackedEntries(t *testing.T) {
 	env.initRepo(t)
 	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader+"nvim=nvim-local\nmimeapps.list=mimeapps.list\n")
 
-	if err := env.run("config", "list"); err != nil {
+	if err := env.run("track", "config", "list"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -70,7 +70,7 @@ func TestConfigListShowsEmptyState(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 
-	if err := env.run("config", "list"); err != nil {
+	if err := env.run("track", "config", "list"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -96,7 +96,7 @@ func TestConfigRemoveRestoresLocalConfigAndRemovesRepoData(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := env.run("config", "rm", "nvim"); err != nil {
+	if err := env.run("track", "config", "rm", "nvim"); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Lstat(local)
@@ -133,7 +133,7 @@ func TestConfigAddRejectsForeignLocalSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := env.run("config", "add", "nvim")
+	err := env.run("track", "config", "add", "nvim")
 	if err == nil {
 		t.Fatal("expected foreign symlink adoption to fail")
 	}
@@ -162,7 +162,7 @@ func TestConfigAddRejectsRepoTargetSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := env.run("config", "add", "nvim")
+	err := env.run("track", "config", "add", "nvim")
 	if err == nil {
 		t.Fatal("expected repo symlink target to fail")
 	}
@@ -183,7 +183,7 @@ func TestConfigRemoveRejectsRepoTargetSymlinkBeforeSnapshot(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader+"nvim=nvim\n")
 
-	err := env.run("config", "rm", "nvim")
+	err := env.run("track", "config", "rm", "nvim")
 	if err == nil {
 		t.Fatal("expected repo symlink target to fail")
 	}
@@ -195,7 +195,7 @@ func TestConfigRemoveRejectsRepoTargetSymlinkBeforeSnapshot(t *testing.T) {
 	}
 }
 
-func TestStatusReportsBrokenManagedSymlink(t *testing.T) {
+func TestCheckStatusReportsBrokenManagedSymlink(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -222,11 +222,11 @@ esac
 		t.Fatal(err)
 	}
 
-	if err := env.run("status"); err != nil {
+	if err := env.run("check", "--status"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(env.stdout.String(), `error nvim: config "nvim" is a managed symlink but its tracked copy is missing`) {
-		t.Fatalf("status did not report broken managed symlink:\n%s", env.stdout.String())
+		t.Fatalf("check --status did not report broken managed symlink:\n%s", env.stdout.String())
 	}
 }
 
@@ -256,7 +256,7 @@ exit 2
 		_ = os.Chmod(env.repo, 0o755)
 	})
 
-	err := env.run("config", "add", "nvim")
+	err := env.run("track", "config", "add", "nvim")
 	if err == nil {
 		t.Fatal("expected state write to fail")
 	}
@@ -275,7 +275,7 @@ exit 2
 	}
 }
 
-func TestDoctorReportsMissingManagedSymlink(t *testing.T) {
+func TestCheckDoctorReportsMissingManagedSymlink(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -296,9 +296,9 @@ esac
 	}
 	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader+"nvim=nvim\n")
 
-	err := env.run("doctor")
+	err := env.run("check", "--doctor")
 	if err == nil {
-		t.Fatal("expected doctor to fail")
+		t.Fatal("expected check --doctor to fail")
 	}
 	out := env.stdout.String()
 	for _, want := range []string{
@@ -309,12 +309,12 @@ esac
 		"fix: archstate apply",
 	} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("doctor output missing %q:\n%s", want, out)
+			t.Fatalf("check --doctor output missing %q:\n%s", want, out)
 		}
 	}
 }
 
-func TestDoctorReportsAURHelperFixes(t *testing.T) {
+func TestCheckDoctorReportsAURHelperFixes(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -337,9 +337,9 @@ esac
 	writeExecutable(t, filepath.Join(env.bin, "sudo"), "exit 0\n")
 	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader+"some-aur=desc\n")
 
-	err := env.run("doctor")
+	err := env.run("check", "--doctor")
 	if err == nil {
-		t.Fatal("expected doctor to fail")
+		t.Fatal("expected check --doctor to fail")
 	}
 	out := env.stdout.String()
 	for _, want := range []string{
@@ -348,12 +348,12 @@ esac
 		"fix: archstate apply --aur-helper yay",
 	} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("doctor output missing %q:\n%s", want, out)
+			t.Fatalf("check --doctor output missing %q:\n%s", want, out)
 		}
 	}
 }
 
-func TestDoctorWarnsPackageDriftWithoutFailing(t *testing.T) {
+func TestCheckDoctorWarnsPackageDriftWithoutFailing(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -376,7 +376,7 @@ esac
 	writeExecutable(t, filepath.Join(env.bin, "sudo"), "exit 0\n")
 	writeFile(t, filepath.Join(env.repo, "pacman.conf"), generatedHeader+"git=desc\n")
 
-	if err := env.run("doctor"); err != nil {
+	if err := env.run("check", "--doctor"); err != nil {
 		t.Fatal(err)
 	}
 	out := env.stdout.String()
@@ -386,10 +386,10 @@ esac
 		"accept current machine: archstate sync",
 	} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("doctor output missing %q:\n%s", want, out)
+			t.Fatalf("check --doctor output missing %q:\n%s", want, out)
 		}
 	}
 	if strings.Contains(out, "ERROR") {
-		t.Fatalf("unexpected doctor output:\n%s", out)
+		t.Fatalf("unexpected check --doctor output:\n%s", out)
 	}
 }

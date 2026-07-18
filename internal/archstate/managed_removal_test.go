@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestManagedCommandUntracksSelectedConfigAndHome(t *testing.T) {
+func TestTrackUntracksSelectedConfigAndHome(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 
@@ -55,7 +55,7 @@ func TestManagedCommandUntracksSelectedConfigAndHome(t *testing.T) {
 		return selected, nil
 	}
 
-	if err := env.run("managed"); err != nil {
+	if err := env.run("track"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -93,14 +93,14 @@ func TestManagedCommandUntracksSelectedConfigAndHome(t *testing.T) {
 	}
 }
 
-func TestManagedCommandEmptyInventory(t *testing.T) {
+func TestTrackUntrackEmptyInventory(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	env.r.managedRemovalTUI = func(managedRemovalInventory) ([]managedRemovalItem, error) {
 		t.Fatal("TUI should not open when inventory is empty")
 		return nil, nil
 	}
-	if err := env.run("managed"); err != nil {
+	if err := env.run("track"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(env.stdout.String(), "no managed config or home entries to untrack") {
@@ -108,13 +108,13 @@ func TestManagedCommandEmptyInventory(t *testing.T) {
 	}
 }
 
-func TestManagedCommandNonTTYFails(t *testing.T) {
+func TestTrackUntrackNonTTYFails(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader+"nvim=nvim\n")
 	writeFile(t, filepath.Join(env.repo, "config", "nvim", "init.lua"), "x\n")
 
-	err := env.run("managed")
+	err := env.run("track")
 	if err == nil {
 		t.Fatal("expected non-TTY error")
 	}
@@ -123,7 +123,7 @@ func TestManagedCommandNonTTYFails(t *testing.T) {
 	}
 }
 
-func TestManagedCommandTUIErrorSkipsUntrack(t *testing.T) {
+func TestTrackUntrackTUIErrorSkipsUntrack(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader+"nvim=nvim\n")
@@ -133,7 +133,7 @@ func TestManagedCommandTUIErrorSkipsUntrack(t *testing.T) {
 		return nil, wantErr
 	}
 
-	err := env.run("managed")
+	err := env.run("track")
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("error = %v, want %v", err, wantErr)
 	}
@@ -142,7 +142,7 @@ func TestManagedCommandTUIErrorSkipsUntrack(t *testing.T) {
 	}
 }
 
-func TestManagedCommandNoSelection(t *testing.T) {
+func TestTrackUntrackNoSelection(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader+"nvim=nvim\n")
@@ -150,7 +150,7 @@ func TestManagedCommandNoSelection(t *testing.T) {
 	env.r.managedRemovalTUI = func(managedRemovalInventory) ([]managedRemovalItem, error) {
 		return nil, nil
 	}
-	if err := env.run("managed"); err != nil {
+	if err := env.run("track"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(env.stdout.String(), "no entries selected") {

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestStatusReportsPackageAndConfigDrift(t *testing.T) {
+func TestCheckStatusReportsPackageAndConfigDrift(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -44,7 +44,7 @@ esac
 	}
 	writeFile(t, filepath.Join(env.home, ".config", "gtk"), "unmanaged\n")
 
-	if err := env.run("status"); err != nil {
+	if err := env.run("check", "--status"); err != nil {
 		t.Fatal(err)
 	}
 	out := env.stdout.String()
@@ -59,12 +59,12 @@ esac
 		`error shell: config "shell" is tracked but its saved copy is missing`,
 	} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("status output missing %q:\n%s", want, out)
+			t.Fatalf("check --status output missing %q:\n%s", want, out)
 		}
 	}
 }
 
-func TestStatusReportsCleanState(t *testing.T) {
+func TestCheckStatusReportsCleanState(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -96,7 +96,7 @@ esac
 		t.Fatal(err)
 	}
 
-	if err := env.run("status"); err != nil {
+	if err := env.run("check", "--status"); err != nil {
 		t.Fatal(err)
 	}
 	out := env.stdout.String()
@@ -108,7 +108,7 @@ esac
 		"ok nvim",
 	} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("status output missing %q:\n%s", want, out)
+			t.Fatalf("check --status output missing %q:\n%s", want, out)
 		}
 	}
 }

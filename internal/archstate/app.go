@@ -89,66 +89,19 @@ func (r *Runner) Run(args []string) error {
 			return err
 		}
 		return r.runSync(commit)
-	case "packages":
-		if len(args) >= 2 && args[1] == "ignore" {
-			return r.runPackagesIgnore(args[2:])
-		}
-		return r.runPackages(args[1:])
+	case "uninstall":
+		return r.runUninstall(args[1:])
+	case "ignore":
+		return r.runIgnore(args[1:])
 	case "check":
 		if len(args) == 2 && isHelpArg(args[1]) {
 			return r.printCommandHelp("check")
 		}
 		return r.runCheck(args[1:])
-	case "status":
-		// Alias of check without --exit (drift listing only).
-		if len(args) == 2 && isHelpArg(args[1]) {
-			return r.printCommandHelp("status")
-		}
-		if len(args) != 1 {
-			return fmt.Errorf("usage: archstate status")
-		}
-		return r.executeCheck(CheckOptions{StatusOnly: true})
-	case "verify":
-		// Alias of check --exit.
-		if len(args) == 2 && isHelpArg(args[1]) {
-			return r.printCommandHelp("verify")
-		}
-		return r.runVerify(args[1:])
-	case "coverage":
-		// Alias of check --coverage.
-		if len(args) == 2 && isHelpArg(args[1]) {
-			return r.printCommandHelp("coverage")
-		}
-		if len(args) != 1 {
-			return fmt.Errorf("usage: archstate coverage")
-		}
-		return r.executeCheck(CheckOptions{CoverageOnly: true})
-	case "doctor":
-		// Alias of check with doctor-style reports.
-		if len(args) == 2 && isHelpArg(args[1]) {
-			return r.printCommandHelp("doctor")
-		}
-		if len(args) != 1 {
-			return fmt.Errorf("usage: archstate doctor")
-		}
-		return r.executeCheck(CheckOptions{DoctorOnly: true})
 	case "track":
 		return r.runTrack(args[1:])
-	case "managed":
-		// Alias of bare track (managed untrack TUI).
-		return r.runManaged(args[1:])
-	case "config":
-		// Alias of track config.
-		return r.runConfig(args[1:])
-	case "home":
-		// Alias of track home.
-		return r.runHome(args[1:])
 	case "apply":
-		// Primary name for bootstrap.
 		return r.runApply(args[1:])
-	case "bootstrap":
-		// Permanent alias of apply.
-		return r.runBootstrap(args[1:])
 	case "snapshot":
 		return r.runSnapshot(args[1:])
 	case "service":
@@ -205,22 +158,15 @@ Commands:
   init       Create repo state and install archstate to ~/.local/bin.
   sync       Capture explicit packages from this machine.
   track      Add/list/preview/rm config & home (TUI untrack with no args).
-  check      Show drift/health; --exit / --strict-packages for scripts; --coverage.
+  check      Show drift/health; --exit / --gate for scripts; subset views available.
   apply      Install missing packages and recreate managed symlinks.
   snapshot   Save, list, restore, or remove repo-state snapshots.
 
 Also:
-  packages   Fuzzy-select explicit packages to remove; manage package ignores.
+  uninstall  Fuzzy-select explicit packages to remove.
+  ignore     Manage the package ignore list.
   service    Manage the optional systemd user sync timer.
   install    Install or update archstate in ~/.local/bin.
-
-Aliases (still work; legacy entry points, not always identical output):
-  status     drift listing only (subset of check)
-  verify     exit-code gate (same checks as check --exit; compact messaging)
-  doctor     health report only (fails on ERROR)
-  coverage   coverage report only
-  config, home, managed  -> track
-  bootstrap              -> apply
 
 Command help:
   archstate help <command>
@@ -285,29 +231,20 @@ Notes:
   Malformed package-file lines, comments, and blanks are cleaned up.
   If package files already match this machine, sync does not snapshot or rewrite.
   An automatic snapshot is created before package files are rewritten.`)
-	case "packages":
+	case "uninstall":
 		fmt.Fprintln(r.Stdout, `Usage:
-  archstate packages
-  archstate packages ignore add <pkg>...
-  archstate packages ignore rm <pkg>...
-  archstate packages ignore list
+  archstate uninstall
 
-Open an interactive package removal TUI, or manage the package ignore list.
+Open an interactive package removal TUI.
 
-packages (no args):
+uninstall (no args):
   sync package state before opening the TUI
   fuzzy-search Native or AUR packages
   mark packages for removal
   review the marked packages, then run one sudo pacman -Rns command
   sync package state again after successful removal
 
-packages ignore:
-  add <pkg>  Do not track these explicit packages in pacman.conf/aur.conf.
-  rm <pkg>   Stop ignoring packages (they reappear on the next sync if installed).
-  list       Show ignored package names.
-
-Ignored packages are skipped by sync and are not reported as untracked by status,
-doctor, or verify --strict-packages. They are never installed by apply/bootstrap.
+To exclude packages from tracking without removing them, see archstate help ignore.
 
 Keys (removal TUI):
   1/2       switch Native/AUR section
@@ -325,9 +262,24 @@ Review page:
   space     unmark a package
   enter/y   run the removal
   esc/n     go back to the package list`)
+	case "ignore":
+		fmt.Fprintln(r.Stdout, `Usage:
+  archstate ignore add <pkg>...
+  archstate ignore rm <pkg>...
+  archstate ignore list
+
+Manage the package ignore list: explicit packages Archstate does not track.
+
+Commands:
+  add <pkg>  Do not track these explicit packages in pacman.conf/aur.conf.
+  rm <pkg>   Stop ignoring packages (they reappear on the next sync if installed).
+  list       Show ignored package names.
+
+Ignored packages are skipped by sync and are not reported as untracked by check
+or check --gate --strict-packages. They are never installed by apply.`)
 	case "check":
 		fmt.Fprintln(r.Stdout, `Usage:
-  archstate check [--coverage] [--exit] [--strict-packages] [--packages-only|--dotfiles-only]
+  archstate check [--status|--doctor|--coverage] [--exit|--gate] [--strict-packages] [--packages-only|--dotfiles-only]
 
 Show package/managed drift and doctor-style health without changing anything.
 
@@ -338,83 +290,27 @@ Default reports:
 
 Notes:
   Default check is informational: ERROR/WARN lines may appear and exit is still 0.
-  Only --exit (or the verify alias) is a completeness gate for scripts.
+  Only --exit or --gate is a completeness gate for scripts.
 
-Options:
-  --coverage         Also print config/home coverage report after drift/health.
-  --exit             Non-zero if missing packages or unhealthy managed entries.
-  --strict-packages  With --exit, also fail on untracked explicit packages.
-  --packages-only    With --exit, check packages only; skip config/home.
-  --dotfiles-only    With --exit, check config/home only; skip packages.
+Subset views (mutually exclusive; not combinable with --exit/--gate):
+  --status           Print only the drift listing (no health report).
+  --doctor           Print only the health report; non-zero on ERROR.
+  --coverage         Print only the config/home coverage report.
 
-Aliases (legacy subsets; not identical to flag combinations above):
-  status     drift listing only
-  verify     exit-code gate with compact verify: ok/failed messaging
-  doctor     doctor-style health only (fails on ERROR)
-  coverage   coverage report only
+Gate options:
+  --exit             Non-zero if missing packages or unhealthy managed entries;
+                     prints the full report first.
+  --gate             Compact scriptable gate: prints only check: ok/failed with
+                     remediation, non-zero on the same failures as --exit.
+  --strict-packages  With --exit/--gate, also fail on untracked explicit packages.
+  --packages-only    With --exit/--gate, check packages only; skip config/home.
+  --dotfiles-only    With --exit/--gate, check config/home only; skip packages.
 
 Examples:
   archstate check
-  archstate check --exit
-  archstate check --exit --strict-packages
+  archstate check --gate
+  archstate check --gate --strict-packages
   archstate check --coverage`)
-	case "status":
-		fmt.Fprintln(r.Stdout, `Usage:
-  archstate status
-
-Legacy alias: drift listing only (a subset of archstate check; no doctor section).
-
-Reports:
-  tracked native/AUR packages that are missing
-  explicitly installed native/AUR packages that are not tracked
-  managed config and home entries as ok, missing, conflict, or error
-
-Prefer: archstate check`)
-	case "verify":
-		fmt.Fprintln(r.Stdout, `Usage:
-  archstate verify [--strict-packages] [--packages-only|--dotfiles-only]
-
-Legacy exit-code gate (same checks as check --exit; compact verify messaging only,
-without the status/doctor listing that primary check --exit prints first).
-
-Checks (by default):
-  no tracked packages are missing
-  every managed config/home entry is a healthy symlink
-
-Options:
-  --strict-packages  Also fail when explicit packages are installed but not tracked.
-  --packages-only    Check packages only; skip config/home.
-  --dotfiles-only    Check config/home only; skip packages.
-
-Notes:
-  verify never mutates state. Use check for a full drift listing and health report.
-  Recommended after apply and before relying on a clone.
-
-Prefer: archstate check --exit
-
-Examples:
-  archstate verify
-  archstate verify --strict-packages
-  archstate verify --packages-only`)
-	case "coverage":
-		fmt.Fprintln(r.Stdout, `Usage:
-  archstate coverage
-
-Legacy alias: coverage report only (a subset of archstate check --coverage, which
-also prints drift and doctor-style health first).
-
-Report how completely config/home capture covers this machine.
-
-Scans:
-  ~/.config direct children (excluding the archstate repo itself)
-  ~ dotfiles (excluding .config, .cache, .local)
-
-Counts each entry as tracked, addable, symlink (blocked), or deny (sensitive).
-Overall percentage is tracked / (tracked + addable). Does not mutate state.
-
-Use track config preview / track home preview for the full per-name listing.
-
-Prefer: archstate check --coverage`)
 	case "track":
 		fmt.Fprintln(r.Stdout, `Usage:
   archstate track
@@ -423,105 +319,18 @@ Prefer: archstate check --coverage`)
   archstate track home add|list|preview|rm ...
 
 Manage config/home capture. Bare track (or track untrack) opens the interactive
-untrack TUI (same as managed).
+untrack TUI.
 
 Subcommands:
   config ...  Manage direct children of ~/.config (add/list/preview/rm).
   home ...    Manage direct children of ~ (add/list/preview/rm).
   (no args)   Fuzzy-select managed entries to stop tracking.
 
-Aliases:
-  config   track config
-  home     track home
-  managed  bare track
-
 Examples:
   archstate track config add nvim kitty
   archstate track home add .zshrc
   archstate track config preview
   archstate track`)
-	case "managed":
-		fmt.Fprintln(r.Stdout, `Usage:
-  archstate managed
-
-Alias of archstate track (no args). Open an interactive TUI to stop managing
-tracked config and home entries.
-
-This is not package uninstall and does not delete your files. For each selected
-entry Archstate removes tracking, restores the local copy when it is a managed
-symlink, and deletes the tracked copy from the repo (same as config/home rm).
-
-Behavior:
-  list tracked Config and Home entries with health status
-  fuzzy-search and mark entries to untrack
-  review the marked list, then apply in one batch (one auto-snapshot)
-
-Keys:
-  1/2       switch Config/Home section
-  type      fuzzy-search the active section
-  up/down   move the cursor
-  tab       switch between the entry list and the marked list
-  f or /    focus the search field
-  space     mark or unmark the highlighted entry
-  enter     review marked entries, then confirm
-  q         quit
-  esc       quit, or go back from the review page
-
-Non-interactive alternative:
-  archstate track config rm <name>...
-  archstate track home rm <name>...
-
-Prefer: archstate track`)
-	case "config":
-		fmt.Fprintln(r.Stdout, `Usage:
-  archstate config add [--force-sensitive] <name>...
-  archstate config list
-  archstate config preview
-  archstate config rm <name>...
-
-Alias of archstate track config. Manage direct children of ~/.config.
-add and rm accept multiple names.
-
-Commands:
-  add <name>  Save ~/.config/<name> into Archstate config/ and replace it with a symlink.
-  list        Show currently tracked config entries.
-  preview     Show ~/.config entries and which ones can be added.
-  rm <name>   Stop managing ~/.config/<name>, restore it locally, and remove the saved copy.
-
-Options:
-  --force-sensitive  Allow tracking sensitive names denied by default (.ssh, gcloud, …).
-
-Prefer: archstate track config ...
-
-Examples:
-  archstate config add nvim kitty ghostty
-  archstate config preview
-  archstate config rm nvim`)
-	case "home":
-		fmt.Fprintln(r.Stdout, `Usage:
-  archstate home add [--force-sensitive] <name>...
-  archstate home list
-  archstate home preview
-  archstate home rm <name>...
-
-Alias of archstate track home. Manage direct children of ~, such as shell/session
-files. add and rm accept multiple names.
-
-Commands:
-  add <name>  Save ~/<name> into Archstate home/ and replace it with a symlink.
-  list        Show currently tracked home entries.
-  preview     Show ~ dotfiles and which ones can be added.
-  rm <name>   Stop managing ~/<name>, restore it locally, and remove the saved copy.
-
-Options:
-  --force-sensitive  Allow tracking sensitive names denied by default (.ssh, .gnupg, …).
-
-Prefer: archstate track home ...
-
-Examples:
-  archstate home add .zshrc .profile
-  archstate home preview
-  archstate home rm .zshrc`)
 	case "snapshot":
 		fmt.Fprintln(r.Stdout, `Usage:
   archstate snapshot save <name>
@@ -542,16 +351,12 @@ Notes:
   Manual snapshots are kept until removed.
   Automatic snapshots are silently pruned to the latest 5.
   Restore creates an automatic snapshot first, so the current repo state can be recovered.`)
-	case "apply", "bootstrap":
-		verb := "apply"
-		if topic == "bootstrap" {
-			verb = "bootstrap"
-		}
-		fmt.Fprintf(r.Stdout, `Usage:
-  archstate %s --dry-run
-  archstate %s [--adopt|--restore] [--aur-helper paru|yay]
-  archstate %s --dotfiles [--adopt|--restore]
-  archstate %s --packages [--aur-helper paru|yay]
+	case "apply":
+		fmt.Fprint(r.Stdout, `Usage:
+  archstate apply --dry-run
+  archstate apply [--adopt|--restore] [--aur-helper paru|yay]
+  archstate apply --dotfiles [--adopt|--restore]
+  archstate apply --packages [--aur-helper paru|yay]
 
 Install missing packages and create managed config/home symlinks.
 
@@ -579,20 +384,6 @@ Conflict behavior:
   with --adopt or --restore. Use --packages to install packages now and deal with
   file conflicts later. Risky actions (adopt/restore) auto-snapshot first.
 
-`, verb, verb, verb, verb)
-		if topic == "bootstrap" {
-			fmt.Fprintln(r.Stdout, `Note: bootstrap is a permanent alias of apply. Prefer archstate apply.
-
-Examples:
-  archstate bootstrap --dry-run
-  archstate bootstrap --dotfiles --restore
-  archstate bootstrap --packages
-  archstate bootstrap --aur-helper paru
-  archstate bootstrap --adopt
-  archstate bootstrap --restore`)
-		} else {
-			fmt.Fprintln(r.Stdout, `Alias: bootstrap (same flags and behavior).
-
 Examples:
   archstate apply --dry-run
   archstate apply --dotfiles --restore
@@ -600,25 +391,6 @@ Examples:
   archstate apply --aur-helper paru
   archstate apply --adopt
   archstate apply --restore`)
-		}
-	case "doctor":
-		fmt.Fprintln(r.Stdout, `Usage:
-  archstate doctor
-
-Legacy alias: doctor-style health report only (fails on ERROR). Primary check also
-includes this section but stays exit 0 unless --exit is set.
-
-Validate repo discovery, required commands, config parseability, package access,
-AUR helper availability, package drift, and managed symlink health.
-
-Output convention:
-  OK     Healthy checks.
-  WARN   Drift or incomplete information that does not block the repo.
-  ERROR  Problems that need a fix before Archstate can be trusted.
-
-Doctor prints exact next commands when a fix is known.
-
-Prefer: archstate check`)
 	case "service":
 		fmt.Fprintln(r.Stdout, `Usage:
   archstate service install
@@ -648,7 +420,7 @@ Notes:
   do not leave package-state changes uncommitted (needs user.name/user.email
   configured).`)
 	default:
-		return fmt.Errorf("unknown help topic %q; choose init, sync, track, check, apply, snapshot, packages, service, install (aliases: status, verify, coverage, managed, config, home, bootstrap, doctor)", topic)
+		return fmt.Errorf("unknown help topic %q; choose init, sync, track, check, apply, snapshot, uninstall, ignore, service, install", topic)
 	}
 	return nil
 }
@@ -845,12 +617,12 @@ func parseSyncArgs(args []string) (bool, error) {
 	return false, fmt.Errorf("usage: archstate sync [--commit]")
 }
 
-func (r *Runner) runPackages(args []string) error {
+func (r *Runner) runUninstall(args []string) error {
 	if len(args) == 1 && isHelpArg(args[0]) {
-		return r.printCommandHelp("packages")
+		return r.printCommandHelp("uninstall")
 	}
 	if len(args) != 0 {
-		return fmt.Errorf("usage: archstate packages")
+		return fmt.Errorf("usage: archstate uninstall")
 	}
 
 	repo, err := r.discoverExistingRepo()
@@ -858,10 +630,10 @@ func (r *Runner) runPackages(args []string) error {
 		return err
 	}
 	if r.packageRemovalTUI == nil && !interactiveTerminal(r.Stdin, r.Stdout) {
-		return fmt.Errorf("archstate packages requires an interactive terminal; run it directly in a terminal, not through a pipe or in a script")
+		return fmt.Errorf("archstate uninstall requires an interactive terminal; run it directly in a terminal, not through a pipe or in a script")
 	}
 
-	return r.withRepoLock(repo, "packages", func() error {
+	return r.withRepoLock(repo, "uninstall", func() error {
 		if _, err := r.syncPackageState(repo); err != nil {
 			return fmt.Errorf("pre-sync failed: %w", err)
 		}
@@ -895,38 +667,11 @@ func (r *Runner) runPackages(args []string) error {
 	})
 }
 
-// checkRenamedOverwriteFlag turns the removed --overwrite flag into a clear
-// pointer to its replacement instead of the flag package's generic "not defined"
-// error, so anyone with the old muscle memory knows exactly what to type.
-func checkRenamedOverwriteFlag(args []string) error {
-	for _, arg := range args {
-		if arg == "--overwrite" || arg == "-overwrite" ||
-			strings.HasPrefix(arg, "--overwrite=") || strings.HasPrefix(arg, "-overwrite=") {
-			return errors.New("the --overwrite flag was renamed to --restore")
-		}
-	}
-	return nil
-}
-
 func (r *Runner) runApply(args []string) error {
 	if len(args) == 1 && isHelpArg(args[0]) {
 		return r.printCommandHelp("apply")
 	}
-	return r.runBootstrapWithVerb("apply", args)
-}
-
-func (r *Runner) runBootstrap(args []string) error {
-	if len(args) == 1 && isHelpArg(args[0]) {
-		return r.printCommandHelp("bootstrap")
-	}
-	return r.runBootstrapWithVerb("bootstrap", args)
-}
-
-func (r *Runner) runBootstrapWithVerb(verb string, args []string) error {
-	if err := checkRenamedOverwriteFlag(args); err != nil {
-		return err
-	}
-	fs := flag.NewFlagSet(verb, flag.ContinueOnError)
+	fs := flag.NewFlagSet("apply", flag.ContinueOnError)
 	fs.SetOutput(r.Stderr)
 	var opts BootstrapOptions
 	fs.BoolVar(&opts.DryRun, "dry-run", false, "show planned changes without applying them")
@@ -940,7 +685,7 @@ func (r *Runner) runBootstrapWithVerb(verb string, args []string) error {
 		return err
 	}
 	if fs.NArg() != 0 {
-		return fmt.Errorf("usage: archstate %s [--dry-run] [--dotfiles|--packages] [--adopt|--restore] [--force-sensitive] [--aur-helper paru|yay]", verb)
+		return fmt.Errorf("usage: archstate apply [--dry-run] [--dotfiles|--packages] [--adopt|--restore] [--force-sensitive] [--aur-helper paru|yay]")
 	}
 	if opts.Adopt && opts.Restore {
 		return errors.New("--adopt and --restore are mutually exclusive")
@@ -973,7 +718,7 @@ func (r *Runner) runBootstrapWithVerb(verb string, args []string) error {
 		r.printBootstrapPlan(plan, opts)
 		return nil
 	}
-	return r.withRepoLock(repo, verb, func() error {
+	return r.withRepoLock(repo, "apply", func() error {
 		plan, err := r.buildBootstrapPlan(repo, opts)
 		if err != nil {
 			return err
@@ -1003,16 +748,9 @@ func (r *Runner) runTrack(args []string) error {
 	}
 }
 
-func (r *Runner) runConfig(args []string) error {
-	return r.runConfigAs("config", args)
-}
-
 func (r *Runner) runConfigAs(prefix string, args []string) error {
 	if len(args) == 1 && isHelpArg(args[0]) {
-		if strings.HasPrefix(prefix, "track") {
-			return r.printCommandHelp("track")
-		}
-		return r.printCommandHelp("config")
+		return r.printCommandHelp("track")
 	}
 	if len(args) < 1 {
 		return fmt.Errorf("usage: archstate %s add <name>\n   or: archstate %s list\n   or: archstate %s preview\n   or: archstate %s rm <name>", prefix, prefix, prefix, prefix)
@@ -1043,24 +781,13 @@ func (r *Runner) runConfigAs(prefix string, args []string) error {
 		}
 		return r.runConfigRemove(repo, args[1:])
 	default:
-		helpTopic := "config"
-		if strings.HasPrefix(prefix, "track") {
-			helpTopic = "track"
-		}
-		return fmt.Errorf("unknown %s command %q; expected add, list, preview, or rm (see 'archstate help %s')", prefix, args[0], helpTopic)
+		return fmt.Errorf("unknown %s command %q; expected add, list, preview, or rm (see 'archstate help track')", prefix, args[0])
 	}
-}
-
-func (r *Runner) runHome(args []string) error {
-	return r.runHomeAs("home", args)
 }
 
 func (r *Runner) runHomeAs(prefix string, args []string) error {
 	if len(args) == 1 && isHelpArg(args[0]) {
-		if strings.HasPrefix(prefix, "track") {
-			return r.printCommandHelp("track")
-		}
-		return r.printCommandHelp("home")
+		return r.printCommandHelp("track")
 	}
 	if len(args) < 1 {
 		return fmt.Errorf("usage: archstate %s add <name>\n   or: archstate %s list\n   or: archstate %s preview\n   or: archstate %s rm <name>", prefix, prefix, prefix, prefix)
@@ -1091,11 +818,7 @@ func (r *Runner) runHomeAs(prefix string, args []string) error {
 		}
 		return r.runHomeRemove(repo, args[1:])
 	default:
-		helpTopic := "home"
-		if strings.HasPrefix(prefix, "track") {
-			helpTopic = "track"
-		}
-		return fmt.Errorf("unknown %s command %q; expected add, list, preview, or rm (see 'archstate help %s')", prefix, args[0], helpTopic)
+		return fmt.Errorf("unknown %s command %q; expected add, list, preview, or rm (see 'archstate help track')", prefix, args[0])
 	}
 }
 

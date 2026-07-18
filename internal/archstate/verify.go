@@ -1,13 +1,13 @@
 package archstate
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"strings"
 )
 
-// VerifyOptions controls which layers of machineDrift verify/check --exit fails on.
+// VerifyOptions controls which layers of machineDrift the check exit gates
+// (check --exit / check --gate) fail on.
 type VerifyOptions struct {
 	// StrictPackages fails when explicit packages are installed but not tracked.
 	StrictPackages bool
@@ -15,50 +15,14 @@ type VerifyOptions struct {
 	PackagesOnly bool
 	// DotFilesOnly skips package checks.
 	DotFilesOnly bool
-	// Label is the verb used in "label: ok/failed" messaging (default "verify").
-	// Primary check --exit uses "check"; the verify alias keeps "verify".
+	// Label is the verb used in "label: ok/failed" messaging (default "check").
 	Label string
-}
-
-func parseVerifyArgs(args []string) (VerifyOptions, error) {
-	var opts VerifyOptions
-	for _, arg := range args {
-		switch arg {
-		case "--strict-packages":
-			opts.StrictPackages = true
-		case "--packages-only":
-			opts.PackagesOnly = true
-		case "--dotfiles-only":
-			opts.DotFilesOnly = true
-		default:
-			return VerifyOptions{}, fmt.Errorf("usage: archstate verify [--strict-packages] [--packages-only|--dotfiles-only]")
-		}
-	}
-	if opts.PackagesOnly && opts.DotFilesOnly {
-		return VerifyOptions{}, errors.New("--packages-only and --dotfiles-only are mutually exclusive")
-	}
-	return opts, nil
-}
-
-func (r *Runner) runVerify(args []string) error {
-	opts, err := parseVerifyArgs(args)
-	if err != nil {
-		return err
-	}
-	// verify is a legacy exit-code gate (same checks as check --exit; compact messaging only).
-	return r.executeCheck(CheckOptions{
-		Exit:           true,
-		StrictPackages: opts.StrictPackages,
-		PackagesOnly:   opts.PackagesOnly,
-		DotFilesOnly:   opts.DotFilesOnly,
-		VerifyOnly:     true,
-	})
 }
 
 func (r *Runner) reportVerify(d machineDrift, opts VerifyOptions) error {
 	label := opts.Label
 	if label == "" {
-		label = "verify"
+		label = "check"
 	}
 	var failures []string
 	var packageMissing, packageUntracked bool
@@ -116,7 +80,7 @@ func printVerifyRemediation(w io.Writer, packageMissing, packageUntracked, manag
 	}
 	if packageUntracked {
 		fmt.Fprintln(w, "accept untracked packages: archstate sync")
-		fmt.Fprintln(w, "or ignore: archstate packages ignore add <pkg>")
+		fmt.Fprintln(w, "or ignore: archstate ignore add <pkg>")
 	}
 	if managedMissing {
 		fmt.Fprintln(w, "fix missing links: archstate apply --dotfiles")

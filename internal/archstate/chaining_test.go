@@ -13,7 +13,7 @@ func TestConfigAddMultipleNamesInOneCommand(t *testing.T) {
 	writeFile(t, filepath.Join(env.home, ".config", "nvim", "init.lua"), "n\n")
 	writeFile(t, filepath.Join(env.home, ".config", "kitty", "kitty.conf"), "k\n")
 
-	if err := env.run("config", "add", "nvim", "kitty"); err != nil {
+	if err := env.run("track", "config", "add", "nvim", "kitty"); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"nvim", "kitty"} {
@@ -36,7 +36,7 @@ func TestConfigAddIsAllOrNothingWhenOneConflicts(t *testing.T) {
 	writeFile(t, filepath.Join(env.home, ".config", "kitty", "kitty.conf"), "k\n")   // local exists
 	writeFile(t, filepath.Join(env.repo, "config", "kitty", "old.conf"), "exists\n") // repo target already exists -> conflict
 
-	err := env.run("config", "add", "nvim", "kitty")
+	err := env.run("track", "config", "add", "nvim", "kitty")
 	if err == nil || !strings.Contains(err.Error(), "a different tracked copy already exists") {
 		t.Fatalf("expected a conflict abort, got: %v", err)
 	}
@@ -60,10 +60,10 @@ func TestConfigAddRejectsFlagLikeAndDuplicateNames(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 
-	if err := env.run("config", "add", "--overwrite", "nvim"); err == nil || !strings.Contains(err.Error(), "flag-like argument") {
+	if err := env.run("track", "config", "add", "--overwrite", "nvim"); err == nil || !strings.Contains(err.Error(), "flag-like argument") {
 		t.Fatalf("expected flag-like guard, got: %v", err)
 	}
-	if err := env.run("config", "add", "nvim", "nvim"); err == nil || !strings.Contains(err.Error(), "duplicate name") {
+	if err := env.run("track", "config", "add", "nvim", "nvim"); err == nil || !strings.Contains(err.Error(), "duplicate name") {
 		t.Fatalf("expected duplicate guard, got: %v", err)
 	}
 }
@@ -85,7 +85,7 @@ func TestConfigRemoveMultipleNamesTakesOneSnapshot(t *testing.T) {
 		}
 	}
 
-	if err := env.run("config", "rm", "nvim", "kitty"); err != nil {
+	if err := env.run("track", "config", "rm", "nvim", "kitty"); err != nil {
 		t.Fatal(err)
 	}
 	if conf := readFile(t, filepath.Join(env.repo, "config.conf")); strings.Contains(conf, "nvim") || strings.Contains(conf, "kitty") {
@@ -114,7 +114,7 @@ func TestHomeAddMultipleNamesInOneCommand(t *testing.T) {
 	writeFile(t, filepath.Join(env.home, ".zshrc"), "z\n")
 	writeFile(t, filepath.Join(env.home, ".profile"), "p\n")
 
-	if err := env.run("home", "add", ".zshrc", ".profile"); err != nil {
+	if err := env.run("track", "home", "add", ".zshrc", ".profile"); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{".zshrc", ".profile"} {

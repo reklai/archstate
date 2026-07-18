@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestBootstrapDryRunReportsPackagesConfigsAndAURHelper(t *testing.T) {
+func TestApplyDryRunReportsPackagesConfigsAndAURHelper(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -29,7 +29,7 @@ esac
 		t.Fatal(err)
 	}
 
-	if err := env.run("bootstrap", "--dry-run"); err != nil {
+	if err := env.run("apply", "--dry-run"); err != nil {
 		t.Fatal(err)
 	}
 	out := env.stdout.String()
@@ -45,7 +45,7 @@ esac
 	}
 }
 
-func TestBootstrapNoAURHelperReportsNextCommands(t *testing.T) {
+func TestApplyNoAURHelperReportsNextCommands(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -63,7 +63,7 @@ esac
 	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader+"some-aur=desc\n")
 	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader)
 
-	if err := env.run("bootstrap", "--dry-run"); err != nil {
+	if err := env.run("apply", "--dry-run"); err != nil {
 		t.Fatal(err)
 	}
 	out := env.stdout.String()
@@ -77,9 +77,9 @@ esac
 		}
 	}
 
-	err := env.run("bootstrap")
+	err := env.run("apply")
 	if err == nil {
-		t.Fatal("expected bootstrap to fail without AUR helper")
+		t.Fatal("expected apply to fail without AUR helper")
 	}
 	for _, want := range []string{
 		"AUR packages are tracked, but neither paru nor yay is installed.",
@@ -87,12 +87,12 @@ esac
 		"archstate apply --aur-helper yay",
 	} {
 		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("bootstrap error missing %q:\n%v", want, err)
+			t.Fatalf("apply error missing %q:\n%v", want, err)
 		}
 	}
 }
 
-func TestBootstrapAURHelperFlagBootstrapsMissingHelperAndContinues(t *testing.T) {
+func TestApplyAURHelperFlagBootstrapsMissingHelperAndContinues(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	logPath := filepath.Join(env.root, "aur-helper.log")
@@ -127,7 +127,7 @@ HELPER
 	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader+"some-aur=desc\n")
 	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader)
 
-	if err := env.run("bootstrap", "--aur-helper", "paru"); err != nil {
+	if err := env.run("apply", "--aur-helper", "paru"); err != nil {
 		t.Fatal(err)
 	}
 	log := readFile(t, logPath)
@@ -143,7 +143,7 @@ HELPER
 	}
 }
 
-func TestBootstrapUsesAURHelperFromFallbackDir(t *testing.T) {
+func TestApplyUsesAURHelperFromFallbackDir(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	fallbackBin := filepath.Join(env.root, "usr-bin")
@@ -168,7 +168,7 @@ esac
 	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader+"some-aur=desc\n")
 	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader)
 
-	if err := env.run("bootstrap"); err != nil {
+	if err := env.run("apply"); err != nil {
 		t.Fatal(err)
 	}
 	log := readFile(t, logPath)
@@ -177,7 +177,7 @@ esac
 	}
 }
 
-func TestBootstrapAURHelperUsesFallbackDirAfterBuild(t *testing.T) {
+func TestApplyAURHelperUsesFallbackDirAfterBuild(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	fallbackBin := filepath.Join(env.root, "usr-bin")
@@ -216,7 +216,7 @@ HELPER
 	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader+"some-aur=desc\n")
 	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader)
 
-	if err := env.run("bootstrap", "--aur-helper", "paru"); err != nil {
+	if err := env.run("apply", "--aur-helper", "paru"); err != nil {
 		t.Fatal(err)
 	}
 	log := readFile(t, logPath)
@@ -230,7 +230,7 @@ HELPER
 	}
 }
 
-func TestBootstrapAURHelperFlagDryRunShowsHelperBootstrap(t *testing.T) {
+func TestApplyAURHelperFlagDryRunShowsHelperBootstrap(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -248,7 +248,7 @@ esac
 	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader+"some-aur=desc\n")
 	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader)
 
-	if err := env.run("bootstrap", "--dry-run", "--aur-helper", "yay"); err != nil {
+	if err := env.run("apply", "--dry-run", "--aur-helper", "yay"); err != nil {
 		t.Fatal(err)
 	}
 	out := env.stdout.String()
@@ -262,11 +262,11 @@ esac
 	}
 }
 
-func TestBootstrapRejectsUnsupportedAURHelperFlag(t *testing.T) {
+func TestApplyRejectsUnsupportedAURHelperFlag(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 
-	err := env.run("bootstrap", "--aur-helper", "pacaur")
+	err := env.run("apply", "--aur-helper", "pacaur")
 	if err == nil {
 		t.Fatal("expected unsupported helper to fail")
 	}
@@ -275,7 +275,7 @@ func TestBootstrapRejectsUnsupportedAURHelperFlag(t *testing.T) {
 	}
 }
 
-func TestBootstrapWithNoAURPackagesDoesNotRequireAURHelper(t *testing.T) {
+func TestApplyWithNoAURPackagesDoesNotRequireAURHelper(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -293,12 +293,12 @@ esac
 	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader)
 	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader)
 
-	if err := env.run("bootstrap"); err != nil {
+	if err := env.run("apply"); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestBootstrapLeavesNativeInstallWhenAURInstallFails(t *testing.T) {
+func TestApplyLeavesNativeInstallWhenAURInstallFails(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	logPath := filepath.Join(env.root, "partial-install.log")
@@ -324,7 +324,7 @@ exit 1
 	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader+"missing-aur=desc\n")
 	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader)
 
-	err := env.run("bootstrap")
+	err := env.run("apply")
 	if err == nil {
 		t.Fatal("expected AUR install failure")
 	}
@@ -342,7 +342,7 @@ exit 1
 	}
 }
 
-func TestBootstrapAURHelperFlagDoesNotBypassManagedConflictSafety(t *testing.T) {
+func TestApplyAURHelperFlagDoesNotBypassManagedConflictSafety(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	logPath := filepath.Join(env.root, "should-not-run.log")
@@ -367,7 +367,7 @@ esac
 	}
 	writeFile(t, filepath.Join(env.home, ".config", "nvim"), "local config\n")
 
-	err := env.run("bootstrap", "--aur-helper", "paru")
+	err := env.run("apply", "--aur-helper", "paru")
 	if err == nil {
 		t.Fatal("expected conflict error")
 	}
@@ -379,7 +379,7 @@ esac
 	}
 }
 
-func TestBootstrapFailsConflictBeforeInstallingPackages(t *testing.T) {
+func TestApplyFailsConflictBeforeInstallingPackages(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -404,7 +404,7 @@ esac
 	}
 	writeFile(t, filepath.Join(env.home, ".config", "nvim"), "local config\n")
 
-	err := env.run("bootstrap")
+	err := env.run("apply")
 	if err == nil {
 		t.Fatal("expected conflict error")
 	}
@@ -419,7 +419,7 @@ esac
 	}
 }
 
-func TestBootstrapAdoptReplacesExistingRepoTargetWithLocalConfig(t *testing.T) {
+func TestApplyAdoptReplacesExistingRepoTargetWithLocalConfig(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -441,7 +441,7 @@ esac
 	local := filepath.Join(env.home, ".config", "nvim")
 	writeFile(t, filepath.Join(local, "init.lua"), "local config wins\n")
 
-	if err := env.run("bootstrap", "--adopt"); err != nil {
+	if err := env.run("apply", "--adopt"); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(t, filepath.Join(repoTarget, "init.lua")); got != "local config wins\n" {
@@ -459,7 +459,7 @@ esac
 	}
 }
 
-func TestBootstrapAdoptWorksWhenRepoTargetIsMissing(t *testing.T) {
+func TestApplyAdoptWorksWhenRepoTargetIsMissing(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -480,7 +480,7 @@ esac
 	writeFile(t, local, "local file config\n")
 	repoTarget := filepath.Join(env.repo, "config", "mimeapps.list")
 
-	if err := env.run("bootstrap", "--adopt"); err != nil {
+	if err := env.run("apply", "--adopt"); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(t, repoTarget); got != "local file config\n" {
@@ -495,7 +495,7 @@ esac
 	}
 }
 
-func TestBootstrapRestoreConflict(t *testing.T) {
+func TestApplyRestoreConflict(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -517,7 +517,7 @@ esac
 	}
 	writeFile(t, filepath.Join(env.home, ".config", "nvim"), "local config\n")
 
-	if err := env.run("bootstrap", "--restore"); err != nil {
+	if err := env.run("apply", "--restore"); err != nil {
 		t.Fatal(err)
 	}
 	link := filepath.Join(env.home, ".config", "nvim")
@@ -530,7 +530,7 @@ esac
 	}
 }
 
-func TestBootstrapRestoreFailsWhenRepoTargetIsMissing(t *testing.T) {
+func TestApplyRestoreFailsWhenRepoTargetIsMissing(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -550,7 +550,7 @@ esac
 	local := filepath.Join(env.home, ".config", "nvim")
 	writeFile(t, local, "local config\n")
 
-	err := env.run("bootstrap", "--restore")
+	err := env.run("apply", "--restore")
 	if err == nil {
 		t.Fatal("expected restore to fail without repo target")
 	}
@@ -562,7 +562,7 @@ esac
 	}
 }
 
-func TestBootstrapDryRunReflectsConflictPolicy(t *testing.T) {
+func TestApplyDryRunReflectsConflictPolicy(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -586,21 +586,21 @@ esac
 	local := filepath.Join(env.home, ".config", "nvim")
 	writeFile(t, filepath.Join(local, "init.lua"), "local config\n")
 
-	if err := env.run("bootstrap", "--dry-run"); err != nil {
+	if err := env.run("apply", "--dry-run"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(env.stdout.String(), "conflict "+local+": use --adopt to save the current config into Archstate, or --restore to install the tracked copy over it") {
 		t.Fatalf("preview did not show conflict policy:\n%s", env.stdout.String())
 	}
 
-	if err := env.run("bootstrap", "--dry-run", "--adopt"); err != nil {
+	if err := env.run("apply", "--dry-run", "--adopt"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(env.stdout.String(), "adopt "+local+" -> "+repoTarget+" (replacing tracked copy)") {
 		t.Fatalf("preview did not show adopt action with replacement note:\n%s", env.stdout.String())
 	}
 
-	if err := env.run("bootstrap", "--dry-run", "--restore"); err != nil {
+	if err := env.run("apply", "--dry-run", "--restore"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(env.stdout.String(), "restore "+repoTarget+" -> "+local) {
@@ -608,7 +608,7 @@ esac
 	}
 }
 
-func TestBootstrapAdoptRejectsForeignLocalSymlink(t *testing.T) {
+func TestApplyAdoptRejectsForeignLocalSymlink(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -637,9 +637,9 @@ esac
 		t.Fatal(err)
 	}
 
-	err := env.run("bootstrap", "--adopt")
+	err := env.run("apply", "--adopt")
 	if err == nil {
-		t.Fatal("expected bootstrap adopt to reject foreign symlink")
+		t.Fatal("expected apply adopt to reject foreign symlink")
 	}
 	if !strings.Contains(err.Error(), "is a symlink") {
 		t.Fatalf("unexpected error: %v", err)
@@ -653,7 +653,7 @@ esac
 	}
 }
 
-func TestBootstrapRestoreReplacesForeignLocalSymlink(t *testing.T) {
+func TestApplyRestoreReplacesForeignLocalSymlink(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -684,7 +684,7 @@ esac
 		t.Fatal(err)
 	}
 
-	if err := env.run("bootstrap", "--restore"); err != nil {
+	if err := env.run("apply", "--restore"); err != nil {
 		t.Fatal(err)
 	}
 	target, err := os.Readlink(local)
@@ -696,7 +696,7 @@ esac
 	}
 }
 
-func TestBootstrapDotFilesAppliesSymlinksWithoutTouchingPacman(t *testing.T) {
+func TestApplyDotFilesAppliesSymlinksWithoutTouchingPacman(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	// pacman exits non-zero on any call, so a passing run proves --dotfiles
@@ -707,7 +707,7 @@ func TestBootstrapDotFilesAppliesSymlinksWithoutTouchingPacman(t *testing.T) {
 	repoTarget := filepath.Join(env.repo, "config", "nvim")
 	writeFile(t, filepath.Join(repoTarget, "init.lua"), "tracked\n")
 
-	if err := env.run("bootstrap", "--dotfiles"); err != nil {
+	if err := env.run("apply", "--dotfiles"); err != nil {
 		t.Fatal(err)
 	}
 	if !isCorrectSymlink(filepath.Join(env.home, ".config", "nvim"), repoTarget) {
@@ -715,11 +715,11 @@ func TestBootstrapDotFilesAppliesSymlinksWithoutTouchingPacman(t *testing.T) {
 	}
 }
 
-func TestBootstrapDotFilesRejectsAURHelper(t *testing.T) {
+func TestApplyDotFilesRejectsAURHelper(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 
-	err := env.run("bootstrap", "--dotfiles", "--aur-helper", "paru")
+	err := env.run("apply", "--dotfiles", "--aur-helper", "paru")
 	if err == nil {
 		t.Fatal("expected --dotfiles with --aur-helper to fail")
 	}
@@ -728,7 +728,7 @@ func TestBootstrapDotFilesRejectsAURHelper(t *testing.T) {
 	}
 }
 
-func TestBootstrapDotFilesDryRunSkipsPackagePlan(t *testing.T) {
+func TestApplyDotFilesDryRunSkipsPackagePlan(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `echo "pacman must not run in --dotfiles dry-run: $*" >&2; exit 2`)
@@ -736,7 +736,7 @@ func TestBootstrapDotFilesDryRunSkipsPackagePlan(t *testing.T) {
 	repoTarget := filepath.Join(env.repo, "config", "nvim")
 	writeFile(t, filepath.Join(repoTarget, "init.lua"), "tracked\n")
 
-	if err := env.run("bootstrap", "--dotfiles", "--dry-run"); err != nil {
+	if err := env.run("apply", "--dotfiles", "--dry-run"); err != nil {
 		t.Fatal(err)
 	}
 	out := env.stdout.String()
@@ -751,7 +751,7 @@ func TestBootstrapDotFilesDryRunSkipsPackagePlan(t *testing.T) {
 	}
 }
 
-func TestBootstrapPackagesInstallsPackagesAndSkipsConflictingFiles(t *testing.T) {
+func TestApplyPackagesInstallsPackagesAndSkipsConflictingFiles(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	logPath := filepath.Join(env.root, "packages-only.log")
@@ -770,7 +770,7 @@ esac
 	writeExecutable(t, filepath.Join(env.bin, "sudo"), "echo \"sudo $*\" >> \"$ARCHSTATE_LOG\"\n")
 	writeFile(t, filepath.Join(env.repo, "pacman.conf"), generatedHeader+"neovim=desc\n")
 	writeFile(t, filepath.Join(env.repo, "aur.conf"), generatedHeader)
-	// A config conflict that would stop a plain bootstrap before any install.
+	// A config conflict that would stop a plain apply before any install.
 	writeFile(t, filepath.Join(env.repo, "config.conf"), generatedHeader+"nvim=nvim\n")
 	if err := os.MkdirAll(filepath.Join(env.repo, "config", "nvim"), 0o755); err != nil {
 		t.Fatal(err)
@@ -778,7 +778,7 @@ esac
 	local := filepath.Join(env.home, ".config", "nvim")
 	writeFile(t, local, "local config\n")
 
-	if err := env.run("bootstrap", "--packages"); err != nil {
+	if err := env.run("apply", "--packages"); err != nil {
 		t.Fatalf("--packages should install packages despite the file conflict: %v", err)
 	}
 	if log := readFile(t, logPath); !strings.Contains(log, "sudo pacman -S --needed neovim") {
@@ -793,7 +793,7 @@ esac
 	}
 }
 
-func TestBootstrapPackagesDryRunSkipsManagedPlan(t *testing.T) {
+func TestApplyPackagesDryRunSkipsManagedPlan(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	writeFakePacman(t, env.bin, `
@@ -815,7 +815,7 @@ esac
 	}
 	writeFile(t, filepath.Join(env.home, ".config", "nvim"), "local config\n")
 
-	if err := env.run("bootstrap", "--packages", "--dry-run"); err != nil {
+	if err := env.run("apply", "--packages", "--dry-run"); err != nil {
 		t.Fatal(err)
 	}
 	out := env.stdout.String()
@@ -830,16 +830,16 @@ esac
 	}
 }
 
-func TestBootstrapPackagesRejectsConflictingFlags(t *testing.T) {
+func TestApplyPackagesRejectsConflictingFlags(t *testing.T) {
 	env := newTestEnv(t)
 	env.initRepo(t)
 	cases := []struct {
 		args []string
 		want string
 	}{
-		{[]string{"bootstrap", "--packages", "--dotfiles"}, "mutually exclusive"},
-		{[]string{"bootstrap", "--packages", "--adopt"}, "have no effect"},
-		{[]string{"bootstrap", "--packages", "--restore"}, "have no effect"},
+		{[]string{"apply", "--packages", "--dotfiles"}, "mutually exclusive"},
+		{[]string{"apply", "--packages", "--adopt"}, "have no effect"},
+		{[]string{"apply", "--packages", "--restore"}, "have no effect"},
 	}
 	for _, tc := range cases {
 		err := env.run(tc.args...)
@@ -849,14 +849,3 @@ func TestBootstrapPackagesRejectsConflictingFlags(t *testing.T) {
 	}
 }
 
-func TestBootstrapOverwriteFlagRenamedToRestore(t *testing.T) {
-	env := newTestEnv(t)
-	env.initRepo(t)
-
-	for _, arg := range []string{"--overwrite", "--overwrite=true"} {
-		err := env.run("bootstrap", arg)
-		if err == nil || !strings.Contains(err.Error(), "the --overwrite flag was renamed to --restore") {
-			t.Fatalf("run(bootstrap %s): want rename guidance, got %v", arg, err)
-		}
-	}
-}
